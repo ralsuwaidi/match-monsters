@@ -200,15 +200,26 @@ def test_selfplay_win_rate_follows_the_team_not_the_seat():
                                          6000, teams, 40, 0.0, 0.0, 0.0)
         return res
 
-    original = (monsters.BONZUMI.cost, monsters.SIPZAP.cost)
+    original = (monsters.BONZUMI.cost, monsters.SIPZAP.cost,
+                monsters.PELIJET.cost, monsters.BARBENIN.cost)
     try:
         object.__setattr__(monsters.BONZUMI, 'cost', 2)
         object.__setattr__(monsters.SIPZAP, 'cost', 1)
         buffed = measure()
-        assert buffed, 'no games finished -- test is not measuring anything'
-        assert sum(buffed) / len(buffed) > 0.9, (
-            'buffing Bonzumi + Sipzap must raise the reported win rate; if it '
-            'does not, the metric is following the seat rather than the team')
-    finally:
         object.__setattr__(monsters.BONZUMI, 'cost', original[0])
         object.__setattr__(monsters.SIPZAP, 'cost', original[1])
+        object.__setattr__(monsters.PELIJET, 'cost', 2)
+        object.__setattr__(monsters.BARBENIN, 'cost', 1)
+        nerfed = measure()
+        assert buffed and nerfed, 'no games finished -- nothing was measured'
+        hi = sum(buffed) / len(buffed)
+        lo = sum(nerfed) / len(nerfed)
+        # buffing my team must raise the number and buffing theirs must lower
+        # it. Following the SEAT instead of the team would leave both near 0.5.
+        assert hi - lo > 0.3, (
+            f'reported rate barely moved ({lo:.2f} -> {hi:.2f}); the metric is '
+            f'following the seat rather than the team')
+    finally:
+        for mon, cost in zip((monsters.BONZUMI, monsters.SIPZAP,
+                              monsters.PELIJET, monsters.BARBENIN), original):
+            object.__setattr__(mon, 'cost', cost)
