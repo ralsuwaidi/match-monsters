@@ -109,8 +109,7 @@ validate:
 # It sees each monster's stats, not its name, so the same weights adapt to
 # whichever side it is playing.
 train iters="1500":
-    nohup {{rl}} mm-train --iters {{iters}} \
-        --waste-penalty 0.15 --match-curriculum 0.6 > /tmp/mm_nn.log 2>&1 &
+    nohup {{rl}} mm-train --iters {{iters}} > /tmp/mm_nn.log 2>&1 &
     @sleep 2 && echo "training started; watch with 'just train-log'"
 
 # foreground, so you can watch it and Ctrl-C

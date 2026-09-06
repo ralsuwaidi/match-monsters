@@ -224,10 +224,10 @@ def main():
     ap.add_argument('--entropy-final', type=float, default=0.003)
     ap.add_argument('--shaping', type=float, default=0.15)
     ap.add_argument('--shaping-anneal', type=float, default=0.6)
-    ap.add_argument('--waste-penalty', type=float, default=0.05,
+    ap.add_argument('--waste-penalty', type=float, default=0.15,
                     help='reward subtracted for a move that clears nothing, '
                          'annealed away over --match-curriculum')
-    ap.add_argument('--match-curriculum', type=float, default=0.35,
+    ap.add_argument('--match-curriculum', type=float, default=0.6,
                     help='fraction of training over which the "matches only" '
                          'restriction is annealed from 1.0 to 0. Set 0 to '
                          'learn from nothing (which does not work -- see '

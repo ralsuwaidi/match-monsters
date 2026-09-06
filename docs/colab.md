@@ -49,6 +49,11 @@ Then train:
           --width 128 --blocks 6 --hidden 512
 ```
 
+The exploration settings (`--waste-penalty 0.15 --match-curriculum 0.6`) are
+the defaults, so they do not need passing. Check the second line the run
+prints: if it says `waste_penalty 0.05`, you are on an old checkout and should
+pull -- 0.05 is a setting that was measured and does not work.
+
 Resume from a checkpoint (written every iteration to `checkpoints/selfplay.pt`):
 
 ```python
