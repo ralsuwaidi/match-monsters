@@ -159,6 +159,7 @@ def behaviour(agent0, agent1, n_games=300, seed=5, max_turns=60):
                                         if k2.startswith(lbl + '/wasted_'))
                 r['mana'] += sum(v for k2, v in d.st.items()
                                  if k2.startswith(lbl + '/mana_'))
+                r['denied'] += d.st[lbl + '/denied']
             rows[0]['turns'] += d.turn
             rows[1]['turns'] += d.turn
     engine.fire = orig_fire
@@ -244,7 +245,8 @@ def main():
     print('  %-18s %12s %12s' % ('per game', 'network', 'heuristic'))
     for key, label in (('damage', 'damage dealt'), ('fires', 'strikes'),
                        ('mana', 'mana earned'), ('wasted_mana', 'mana burnt'),
-                       ('berries', 'berries taken'), ('evolves', 'EVOLUTIONS'),
+                       ('berries', 'berries taken'), ('denied', 'DENIAL tiles'),
+                       ('evolves', 'EVOLUTIONS'),
                        ('boosts', 'boosts')):
         print('  %-18s %12.2f %12.2f' % (label, beh[0][key], beh[1][key]))
     print('  %-18s %12.1f %12s' % ('turns per game', beh[0]['turns'], '(shared)'))

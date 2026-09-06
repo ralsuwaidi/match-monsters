@@ -179,7 +179,7 @@ class Duel:
                     cleared, longest = self.g.resolve()
                     if longest >= 4:
                         self.n_big += 1
-                    engine.collect(me, cleared, self.st)
+                    engine.collect(me, cleared, self.st, foe)
                     if longest >= 4 and self.extras < rules.EXTRA_MOVES_PER_TURN:
                         self.extras += 1
                         self.moves += 1

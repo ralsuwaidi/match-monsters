@@ -38,7 +38,15 @@ def _merge(dst, src):
     return dst
 
 
-def collect(side, cleared, st):
+def collect(side, cleared, st, foe=None):
+    """Route cleared tiles into mana / berries.
+
+    `foe` is optional and only used to record denial -- tiles taken that fed
+    nobody but which the opponent needed."""
+    if foe is not None:
+        for t, n in cleared.items():
+            if t in foe.mons:
+                st[side.label + '/denied'] += n
     for t, n in cleared.items():
         if t == grid.BERRY:
             got = min(n, rules.BERRY_CAP - side.berries)
@@ -207,7 +215,7 @@ def play_turn(side, foe, g, pol, st):
             extras += 1
             moves += 1
             st[side.label + '/extra_moves'] += 1
-        collect(side, cleared, st)
+        collect(side, cleared, st, foe)
         side.ability_longest = 0
         fire_all(side, foe, g, st)
         # a 4+ match made by an ability earns the extra move too
