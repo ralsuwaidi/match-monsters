@@ -5,9 +5,9 @@
 import random
 import sys
 
-import grid
-import engine
-import sim
+from match_monsters.game import grid
+from match_monsters.game import engine
+from match_monsters import sim as sim
 
 GLYPH = {'red': 'R', 'yellow': 'Y', 'blue': 'B',
          'green': 'g', 'purple': 'P', grid.BERRY: '*'}

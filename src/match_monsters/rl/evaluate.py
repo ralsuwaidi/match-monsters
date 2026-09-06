@@ -9,12 +9,12 @@ import random
 import numpy as np
 import torch
 
-import ai
-import engine
-import nets
-import rules
-import selfplay
-from selfplay import Duel, N_SWAP, SWAP_IX
+from match_monsters.agents import ai
+from match_monsters.game import engine
+from match_monsters.rl import nets
+from match_monsters import rules
+from match_monsters.rl import selfplay
+from match_monsters.rl.selfplay import Duel, N_SWAP, SWAP_IX
 
 
 class NetAgent:

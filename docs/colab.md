@@ -38,36 +38,47 @@ Raise `--games` on a GPU: bigger inference batches amortise the transfer cost.
 
 ```python
 # one cell
-!pip -q install gymnasium torch numpy
-!git clone <your-repo> mm || true
+!git clone <your-repo> mm && cd mm && pip -q install -e ".[rl]"
 %cd mm
 ```
 
 Then train:
 
 ```python
-!python train_coevolve.py --iters 2000 --games 512 --steps 16384 --device cuda
+!mm-train --iters 2000 --games 512 --steps 16384 --device cuda \
+          --width 128 --blocks 6 --hidden 512
 ```
 
-Resume from a checkpoint (they are written every iteration to
-`checkpoints/coevolve.pt`):
+Resume from a checkpoint (written every iteration to `checkpoints/selfplay.pt`):
 
 ```python
-!python train_coevolve.py --iters 4000 --resume --device cuda
+!mm-train --iters 4000 --resume --device cuda
 ```
 
-Mount Drive first if you want checkpoints to survive the runtime being recycled:
+Mount Drive first if you want checkpoints to survive the runtime recycling:
 
 ```python
 from google.colab import drive; drive.mount('/content/drive')
-!python train_coevolve.py --iters 2000 --ckpt /content/drive/MyDrive/mm_ckpt --resume
+!mm-train --iters 2000 --ckpt /content/drive/MyDrive/mm_ckpt --resume
 ```
 
 ## Files needed
 
-`selfplay.py`, `nets.py`, `train_coevolve.py`, `engine.py`, `ai.py`, `grid.py`,
-`monsters.py`, `rules.py`, `runner.py`, `progress.py`. Nothing else is imported
-at training time.
+The whole `src/match_monsters` package -- it is installed by `pip install -e .`
+so the imports resolve. Nothing outside it is needed at training time.
+
+## Getting the run reviewed
+
+Every run writes `runs/<run-id>/train.log` and `runs/<run-id>/progress.json`.
+For a compact summary to paste back for review:
+
+```python
+!mm-report-run
+```
+
+It prints the settings, the learning curve, and the reference points that say
+what the numbers mean. On Colab, copy `runs/` to Drive if you want it to
+survive the runtime being recycled.
 
 ## Reading the output
 

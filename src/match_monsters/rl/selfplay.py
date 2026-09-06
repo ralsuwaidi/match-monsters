@@ -11,9 +11,9 @@ from collections import Counter
 
 import numpy as np
 
-import engine
-import grid
-import rules
+from match_monsters.game import engine
+from match_monsters.game import grid
+from match_monsters import rules
 
 TILES = grid.COLORS + [grid.BERRY]
 TILE_IX = {t: i for i, t in enumerate(TILES)}

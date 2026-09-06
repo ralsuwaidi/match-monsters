@@ -12,9 +12,9 @@ import random
 import sys
 from collections import Counter
 
-import grid
-import engine
-import sim
+from match_monsters.game import grid
+from match_monsters.game import engine
+from match_monsters import sim as sim
 
 OBSERVED = [3, 4, 4, 3, 5, 6]   # berries per 35-tile board, from screenshots
 FRESH = [3]                     # boards seen at turn 1, before any matching

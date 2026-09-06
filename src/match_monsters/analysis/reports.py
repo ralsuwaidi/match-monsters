@@ -4,20 +4,21 @@ import random
 import sys
 from collections import Counter
 
-import grid
-from grid import Grid
-import monsters
-import rules
-from ai import MY_POLICIES, FOE_POLICIES, Policy, STRATEGIES_ME, STRATEGIES_FOE
-from engine import Side
-from monsters import MY_TEAM, FOE_TEAM
-from runner import run, wilson
+from match_monsters.game import grid
+from match_monsters.game.grid import Grid
+from match_monsters.game import monsters
+from match_monsters import rules
+from match_monsters.agents.ai import MY_POLICIES, FOE_POLICIES, Policy, STRATEGIES_ME, STRATEGIES_FOE
+from match_monsters.game.engine import Side
+from match_monsters.game.monsters import MY_TEAM, FOE_TEAM
+from match_monsters.solver.runner import run, wilson
 
 
 def report_board(trials=4000, seed=7):
     print("\n=== BOARD " + "=" * 58)
-    print(f"{grid.W} wide x {grid.H} tall, {len(grid.ALL)} tile types at "
-          f"{grid.BERRY_WEIGHT*100:.1f}% each, cascades={grid.CASCADE}\n")
+    colour_rate = (1 - grid.BERRY_WEIGHT) / len(grid.COLORS)
+    print(f"{grid.W} wide x {grid.H} tall   berries {grid.BERRY_WEIGHT*100:.1f}%, "
+          f"each colour {colour_rate*100:.1f}%   cascades={grid.CASCADE}\n")
     rng = random.Random(seed)
     avail = Counter()
     nmoves, nsetups, big, total = [], [], 0, 0
@@ -115,7 +116,7 @@ def report_head(my_pol, foe_pol, trials=16000, seed=4242):
 
 
 def _sens_list():
-    from monsters import honey_ohm, honey_ohm_convert, Ability
+    from match_monsters.game.monsters import honey_ohm, honey_ohm_convert, Ability
     return [
         ('baseline', {}),
         ('event HP: 70 not 80', {'BASE_HP': 70}),

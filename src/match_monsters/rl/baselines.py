@@ -4,9 +4,9 @@ import random
 
 import numpy as np
 
-import ai
-import engine
-from selfplay import Duel, SWAP_IX
+from match_monsters.agents import ai
+from match_monsters.game import engine
+from match_monsters.rl.selfplay import Duel, SWAP_IX
 
 
 def run(pick, n=300, seed=4):
@@ -34,20 +34,24 @@ def matches_only(d):
 
 
 def heuristic(d):
-    import eval_nn
+    from match_monsters.rl import evaluate as eval_nn
     pol = (ai.MY_POLICIES['bon_hdeny'] if d.active == 0
            else ai.FOE_POLICIES['pel_deny'])
     return eval_nn.HeuristicAgent(pol)._one(d)
 
 
+def main():
+        print('%-28s %9s %8s %12s %10s'
+              % ('policy', 'damage', 'turns', 'match rate', 'decisive'))
+        for name, f in (('uniform over legal moves', uniform_legal),
+                        ('uniform over MATCHES only', matches_only),
+                        ('hand-tuned heuristic', heuristic)):
+            dm, tn, mr, de = run(f)
+            print('%-28s %9.1f %8.1f %11.1f%% %9.0f%%' % (name, dm, tn, mr, de))
+        print('\nA trained agent is only interesting once its match rate is well '
+              'above 10% and\nits turns-to-win drops below 26 -- that is where '
+              'strategy starts to matter.')
+
+
 if __name__ == '__main__':
-    print('%-28s %9s %8s %12s %10s'
-          % ('policy', 'damage', 'turns', 'match rate', 'decisive'))
-    for name, f in (('uniform over legal moves', uniform_legal),
-                    ('uniform over MATCHES only', matches_only),
-                    ('hand-tuned heuristic', heuristic)):
-        dm, tn, mr, de = run(f)
-        print('%-28s %9.1f %8.1f %11.1f%% %9.0f%%' % (name, dm, tn, mr, de))
-    print('\nA trained agent is only interesting once its match rate is well '
-          'above 10% and\nits turns-to-win drops below 26 -- that is where '
-          'strategy starts to matter.')
+    main()

@@ -1,7 +1,7 @@
 """Detailed head-to-head between two policies, for the UI and the CLI."""
 
-import monsters
-import runner
+from match_monsters.game import monsters
+from match_monsters.solver import runner
 
 MY = (monsters.BONZUMI, monsters.SIPZAP)
 FOE = (monsters.PELIJET, monsters.BARBENIN)

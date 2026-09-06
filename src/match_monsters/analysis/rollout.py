@@ -9,11 +9,11 @@ import random
 import sys
 from collections import Counter
 
-import ai
-import engine
-import grid
-import play
-import rules
+from match_monsters.agents import ai
+from match_monsters.game import engine
+from match_monsters.game import grid
+from match_monsters import play as play
+from match_monsters import rules
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 1500
 CONTINUE = 'bon_hdeny'

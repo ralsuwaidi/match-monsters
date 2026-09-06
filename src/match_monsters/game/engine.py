@@ -2,11 +2,11 @@
 
 from collections import Counter
 
-import grid
-from grid import Grid
-import rules
-from ai import valuation, choose_move, choose_move_self_first
-from monsters import MY_TEAM, FOE_TEAM
+from match_monsters.game import grid
+from match_monsters.game.grid import Grid
+from match_monsters import rules
+from match_monsters.agents.ai import valuation, choose_move, choose_move_self_first
+from match_monsters.game.monsters import MY_TEAM, FOE_TEAM
 
 
 TRACE = None            # set to a callable to get a play-by-play

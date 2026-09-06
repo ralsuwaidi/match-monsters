@@ -10,12 +10,12 @@ import random
 from collections import Counter
 from multiprocessing import Pool
 
-import ai
-import grid
-import monsters
-import rules
-from ai import MY_POLICIES, FOE_POLICIES
-from engine import duel
+from match_monsters.agents import ai
+from match_monsters.game import grid
+from match_monsters.game import monsters
+from match_monsters import rules
+from match_monsters.agents.ai import MY_POLICIES, FOE_POLICIES
+from match_monsters.game.engine import duel
 
 
 def _snapshot():

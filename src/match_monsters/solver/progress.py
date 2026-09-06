@@ -7,7 +7,9 @@ import json
 import os
 import time
 
-RUNS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'runs')
+# Run artefacts belong beside the project the user is working in, not inside
+# the installed package. Override with MM_RUNS_DIR.
+RUNS_DIR = os.environ.get('MM_RUNS_DIR', os.path.join(os.getcwd(), 'runs'))
 
 
 def run_dir(run_id):

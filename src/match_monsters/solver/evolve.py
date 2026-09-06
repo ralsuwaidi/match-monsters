@@ -20,7 +20,7 @@ import sys
 import time
 import traceback
 
-import progress
+from match_monsters.solver import progress
 
 _STOP = False
 
@@ -44,7 +44,7 @@ FOE_ORDERS = [('blue',), ('purple',), ('blue', 'purple'), ('purple', 'blue')]
 
 
 def genome_to_policy(gen, side, name):
-    import ai
+    from match_monsters.agents import ai
     return ai.Policy(name=name, own_w=1.0, use_berries=True,
                      evolve_order=gen['order'], setup=True,
                      **{k: gen[k] for k in GENES})
@@ -82,10 +82,10 @@ def main():
     signal.signal(signal.SIGTERM, _on_term)
     signal.signal(signal.SIGINT, _on_term)
 
-    import ai
-    import grid
-    import rules
-    from runner import run, wilson, close_pool
+    from match_monsters.agents import ai
+    from match_monsters.game import grid
+    from match_monsters import rules
+    from match_monsters.solver.runner import run, wilson, close_pool
 
     cfg = {}
     if args.berry is not None:

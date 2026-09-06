@@ -15,11 +15,11 @@ import random
 import sys
 from collections import Counter
 
-import ai
-import engine
-import grid
-import monsters
-import rules
+from match_monsters.agents import ai
+from match_monsters.game import engine
+from match_monsters.game import grid
+from match_monsters.game import monsters
+from match_monsters import rules
 
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'game_state.json')
 GLYPH = {'red': '🔴', 'yellow': '🟡', 'blue': '🔵',
@@ -510,3 +510,7 @@ if __name__ == '__main__':
         cmd_ai()
     else:
         show(*load())
+
+
+if __name__ == '__main__':
+    main()

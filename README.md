@@ -5,11 +5,12 @@ good enough against Pelijet + Barbenin?**
 
 **Short answer: 46.0%** — a coin flip, very slightly unfavourable, measured over
 2.35 million simulated duels with both sides playing their best. Full reasoning
-and every supporting number is in **[FINDINGS.md](FINDINGS.md)**.
+and every supporting number is in **[docs/findings.md](docs/findings.md)**.
 
 ```bash
 just            # list every command
 just setup      # install
+just test       # 16 tests covering the rules that must hold
 just play       # play a game yourself against the strongest enemy policy
 just report     # the whole analysis
 ```
@@ -100,26 +101,46 @@ Two curricula were tried and both failed:
 Both experiments ran ~500k steps. Typical PPO needs 10⁷–10⁸. **So "wrong
 hyperparameters" and "not enough compute" both fit the data**, and the runs so
 far cannot distinguish them. The next honest experiment is a multi-hour run —
-which is what [COLAB.md](COLAB.md) is for.
+which is what [docs/colab.md](docs/colab.md) is for.
 
 ## Layout
 
-| file | what it is |
-|---|---|
-| `rules.py` | every rule constant, `[C]`onfirmed or `[A]`ssumed |
-| `grid.py` | board: tiles, swaps, gravity, refill, cascades |
-| `monsters.py` | monster stats and abilities |
-| `ai.py` | valuation, policies, move choice |
-| `engine.py` | sides, mana, firing, turns, a duel |
-| `runner.py` | multiprocessing and confidence intervals |
-| `reports.py` `sim.py` | the printed analysis |
-| `solver.py` `app.py` | racing policy solver and its dashboard |
-| `play.py` | play a game yourself in the terminal |
-| `trace.py` | print a full simulated game, turn by turn |
-| `selfplay.py` `nets.py` `train_selfplay.py` | neural self-play |
-| `eval_nn.py` `baseline.py` | how good is it, against what |
-| `validate_real.py` | engine checked against real screenshots |
-| `berry_sweep.py` `berry_calibrate.py` `rollout.py` | supporting studies |
+```
+src/match_monsters/
+├── rules.py              every rule constant, [C]onfirmed or [A]ssumed
+├── game/                 the rules engine
+│   ├── grid.py             board: tiles, swaps, gravity, refill, cascades
+│   ├── monsters.py         monster stats and abilities
+│   └── engine.py           sides, mana, firing, turns, a duel
+├── agents/
+│   └── ai.py               valuation, policies, move choice
+├── solver/
+│   ├── runner.py           multiprocessing and confidence intervals
+│   ├── race.py             the racing policy solver
+│   ├── evolve.py           co-evolution of the policy weights
+│   └── progress.py         run state, shared with the dashboard
+├── rl/
+│   ├── selfplay.py         two-sided game state for neural play
+│   ├── nets.py             actor-critic, configurable width and depth
+│   ├── train.py            PPO self-play, one net playing both teams
+│   ├── evaluate.py         net vs net, net vs heuristic
+│   ├── baselines.py        the reference points above
+│   └── report.py           pasteable summary of a run
+├── analysis/
+│   ├── reports.py          board stats, matrix, headline, sensitivity
+│   ├── validate.py         engine checked against real screenshots
+│   ├── berry_sweep.py      re-solve at every plausible berry rate
+│   ├── berry_calibrate.py  board counts -> spawn-rate estimate
+│   ├── rollout.py          which line is better from a live position
+│   ├── trace.py            print a full game turn by turn
+│   └── head_to_head.py     detailed matchup stats for the dashboard
+├── ui/app.py             the Streamlit dashboard
+├── play.py               play a game yourself in the terminal
+└── sim.py                report entry point
 
-`train_coevolve.py` is the earlier two-network design, kept for comparison
-(`just train-two`).
+tests/                    rules that must hold -- `just test`
+docs/                     findings.md, colab.md
+```
+
+Every command is a `just` recipe and also a console script (`mm-play`,
+`mm-solve`, `mm-train`, ...) installed by `uv sync`.

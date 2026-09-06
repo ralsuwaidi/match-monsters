@@ -4,7 +4,7 @@ The berry rate is the one board parameter still unmeasured, and it changes which
 strategy is best -- so the equilibrium has to be re-solved at every rate, not
 just the win rate re-measured.
 """
-import sim
+from match_monsters import sim as sim
 
 ME = ['bon_hdeny', 'bon_deny', 'bon_evo', 'no_berry']
 FOE = ['pel_hdeny', 'pel_deny', 'pel_evo', 'no_berry']

@@ -24,13 +24,13 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-import ai
-import engine
-from selfplay import N_SWAP
-import grid
-import nets
-import progress
-from selfplay import Duel
+from match_monsters.agents import ai
+from match_monsters.game import engine
+from match_monsters.rl.selfplay import N_SWAP
+from match_monsters.game import grid
+from match_monsters.rl import nets
+from match_monsters.solver import progress
+from match_monsters.rl.selfplay import Duel
 
 _STOP = False
 
@@ -187,7 +187,7 @@ def rollout(net, duels, rngs, device, steps, teams, max_turns, shaping,
 
 
 def rules_base():
-    import rules
+    from match_monsters import rules
     return float(rules.BASE_HP)
 
 
@@ -196,7 +196,7 @@ def eval_vs_heuristics(net, device, games, max_turns):
     """The absolute yardstick: the shared net plays BOTH teams against the
     hand-tuned policies. Self-play win rate alone cannot tell you whether the
     agent is good, only whether it is balanced against itself."""
-    import eval_nn
+    from match_monsters.rl import evaluate as eval_nn
     net.eval()
     agent = eval_nn.NetAgent(net, device, greedy=False)
     hA = eval_nn.HeuristicAgent(ai.MY_POLICIES['bon_hdeny'])
@@ -277,8 +277,21 @@ def main():
                         'shaping': args.shaping, 'params': nparams},
              'history': [], 'error': None}
     progress.write(run_id, state)
-    print(f'run {run_id}  device {device}  {nparams:,} params  '
-          f'(ONE net playing both sides)', flush=True)
+    # a self-contained log next to the run, so a Colab session can be pasted
+    # back for review without hunting for the notebook output
+    os.makedirs(progress.run_dir(run_id), exist_ok=True)
+    logf = open(os.path.join(progress.run_dir(run_id), 'train.log'), 'a',
+                buffering=1)
+
+    def say(msg):
+        print(msg, flush=True)
+        logf.write(msg + '\n')
+
+    say(f'run {run_id}  device {device}  {nparams:,} params  '
+        f'(ONE net playing both sides)')
+    say(f'arch {arch}  games {args.games}  steps/iter {args.steps}  '
+        f'lr {args.lr}  entropy {args.entropy}->{args.entropy_final}  '
+        f'shaping {args.shaping}  waste_penalty {args.waste_penalty}')
 
     total, recent, t0 = 0, [], time.time()
     for it in range(start, args.iters + 1):
@@ -327,15 +340,14 @@ def main():
             'A_vs_heuristic': ev_a, 'B_vs_heuristic': ev_b, **tel})
         progress.write(run_id, state)
         ev_txt = '' if ev_a is None else f'  | vs heuristic  as-A {ev_a:.0f}%  as-B {ev_b:.0f}%'
-        print(f'iter {it:4d}  win {wr:5.1f}%  '
+        say(f'iter {it:4d}  win {wr:5.1f}%  '
               f'turns {tel.get("turns_to_win") or float("nan"):5.1f}  '
               f'match {tel.get("match_rate", 0):4.1f}%  '
               f'dmg {tel.get("damage", 0):5.1f}  '
               f'fires {tel.get("fires", 0):4.1f}  '
               f'decisive {tel.get("decisive", 0):3.0f}%  '
               f'wp {wp:.3f}  '
-              f'{total/max(el,1e-9):.0f}/s  ent {stats["entropy"]:.2f}{ev_txt}',
-              flush=True)
+            f'{total/max(el,1e-9):.0f}/s  ent {stats["entropy"]:.2f}{ev_txt}')
         torch.save({'net': net.state_dict(), 'opt': opt.state_dict(),
                     'arch': arch, 'iter': it, 'shared': True}, path)
 

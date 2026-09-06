@@ -8,8 +8,8 @@ rather than linearly.
 
 from dataclasses import dataclass
 
-import grid
-import rules
+from match_monsters.game import grid
+from match_monsters import rules
 
 
 # ----------------------------------------------------------- VALUATION ----

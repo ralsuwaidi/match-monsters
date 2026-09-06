@@ -1,8 +1,8 @@
 """Load the boards from the real-game screenshots and check them against the
 engine's assumptions."""
 import random
-import grid
-from grid import Grid
+from match_monsters.game import grid
+from match_monsters.game.grid import Grid
 
 B, Y, G, P, R, S = 'blue', 'yellow', 'green', 'purple', 'red', grid.BERRY
 

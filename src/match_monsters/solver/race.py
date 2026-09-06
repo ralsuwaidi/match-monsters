@@ -22,7 +22,7 @@ import sys
 import time
 import traceback
 
-import progress
+from match_monsters.solver import progress
 
 _STOP = False
 
@@ -49,10 +49,10 @@ def main():
     signal.signal(signal.SIGTERM, _on_term)
     signal.signal(signal.SIGINT, _on_term)
 
-    import grid
-    import rules
-    from ai import STRATEGIES_ME, STRATEGIES_FOE
-    from runner import run, wilson, close_pool
+    from match_monsters.game import grid
+    from match_monsters import rules
+    from match_monsters.agents.ai import STRATEGIES_ME, STRATEGIES_FOE
+    from match_monsters.solver.runner import run, wilson, close_pool
 
     # Overrides must travel to the workers explicitly: they are spawned, not
     # forked, so they re-import this module's defaults from disk.

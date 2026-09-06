@@ -3,8 +3,8 @@ capacity question can be tested rather than guessed at."""
 import torch
 import torch.nn as nn
 
-import grid
-from selfplay import N_ACTIONS, N_PLANES, SCALARS
+from match_monsters.game import grid
+from match_monsters.rl.selfplay import N_ACTIONS, N_PLANES, SCALARS
 
 
 def pick_device(prefer=None):

@@ -15,9 +15,9 @@ import time
 import pandas as pd
 import streamlit as st
 
-import ai
-import analysis
-import progress
+from match_monsters.agents import ai
+from match_monsters.analysis import head_to_head as analysis
+from match_monsters.solver import progress
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 st.set_page_config(page_title="Match Monsters solver", layout="wide")
