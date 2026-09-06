@@ -6,6 +6,7 @@ hand-tuned heuristics, so you can see which side actually got better.
 import argparse
 import os
 import random
+from collections import Counter
 
 import numpy as np
 import torch
@@ -103,6 +104,58 @@ def wilson(p, n, z=1.96):
     return (c - h) / d, (c + h) / d
 
 
+def behaviour(agent0, agent1, n_games=300, seed=5, max_turns=60):
+    """Play the two agents and report what each SIDE actually did.
+
+    A win rate says who won; this says why. Seat 0 is agent0 throughout, so the
+    two columns are directly comparable."""
+    teams = (engine.MY_TEAM, engine.FOE_TEAM)
+    rng = random.Random(seed)
+    rows = {0: Counter(), 1: Counter()}
+    games = 0
+    results = []
+    while games < n_games:
+        k = min(128, n_games - games)
+        duels = [Duel(random.Random(rng.randrange(1 << 30)), teams,
+                      max_turns=max_turns) for _ in range(k)]
+        swaps = {id(d): [0, 0] for d in duels}
+        while any(not d.done for d in duels):
+            for side, agent in ((0, agent0), (1, agent1)):
+                live = [d for d in duels if not d.done and d.active == side]
+                if not live:
+                    continue
+                before = {id(d): (d.n_swaps, d.n_matched) for d in live}
+                acts = agent.act_batch(live)
+                for d, a in zip(live, acts):
+                    d.step(int(a))
+                    s0, m0 = before[id(d)]
+                    swaps[id(d)][side] += 0   # placeholder, totals read below
+        for d in duels:
+            games += 1
+            results.append(d.result)
+            for side in (0, 1):
+                lbl = 'me' if side == 0 else 'foe'
+                r = rows[side]
+                r['damage'] += sum(v for k2, v in d.st.items()
+                                   if k2.startswith(lbl + '/dmg_'))
+                r['fires'] += sum(v for k2, v in d.st.items()
+                                  if k2.startswith(lbl + '/fires_'))
+                r['evolves'] += sum(v for k2, v in d.st.items()
+                                    if k2.startswith(lbl + '/evolve_'))
+                r['boosts'] += d.st[lbl + '/boosts']
+                r['berries'] += d.st[lbl + '/berries']
+                r['wasted_mana'] += sum(v for k2, v in d.st.items()
+                                        if k2.startswith(lbl + '/wasted_'))
+                r['mana'] += sum(v for k2, v in d.st.items()
+                                 if k2.startswith(lbl + '/mana_'))
+            rows[0]['turns'] += d.turn
+            rows[1]['turns'] += d.turn
+    for side in (0, 1):
+        for k2 in rows[side]:
+            rows[side][k2] /= games
+    return rows, 100 * sum(results) / games, games
+
+
 def team_balance(agent, n_games=2000, seed=99, max_turns=60):
     """Which TEAM is actually winning?
 
@@ -171,6 +224,19 @@ def main():
         print('      first-move advantage     %+.1f points' % r['first_move_edge'])
         print('  above 50% means Bonzumi + Sipzap is the stronger roster.')
         print('  the hand-tuned solver puts this at 46.0%.\n')
+
+    print('WHERE THE GAMES ARE BEING LOST')
+    print('the network in seat 0 against the hand-tuned policy in seat 1,')
+    print('both playing Bonzumi + Sipzap and Pelijet + Barbenin respectively.\n')
+    beh, wr, ng = behaviour(netA, hB, 300)
+    print('  %-18s %12s %12s' % ('per game', 'network', 'heuristic'))
+    for key, label in (('damage', 'damage dealt'), ('fires', 'strikes'),
+                       ('mana', 'mana earned'), ('wasted_mana', 'mana burnt'),
+                       ('berries', 'berries taken'), ('evolves', 'EVOLUTIONS'),
+                       ('boosts', 'boosts')):
+        print('  %-18s %12.2f %12.2f' % (label, beh[0][key], beh[1][key]))
+    print('  %-18s %12.1f %12s' % ('turns per game', beh[0]['turns'], '(shared)'))
+    print('  network win rate in this matchup: %.1f%% over %d games\n' % (wr, ng))
 
     rows = [
         ('net A (Bonzumi+Sipzap)  vs  net B (Pelijet+Barbenin)', netA, netB),
