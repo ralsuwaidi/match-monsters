@@ -196,8 +196,9 @@ def test_selfplay_win_rate_follows_the_team_not_the_seat():
         teams = (engine.MY_TEAM, engine.FOE_TEAM)
         seats = [teams if i % 2 == 0 else (teams[1], teams[0]) for i in range(48)]
         duels = [Duel(rngs[i], seats[i], max_turns=40) for i in range(48)]
-        _buf, res, _tele = train.rollout(net, duels, rngs, torch.device('cpu'),
-                                         6000, teams, 40, 0.0, 0.0, 0.0)
+        out = train.rollout(net, duels, rngs, torch.device('cpu'),
+                            6000, teams, 40, 0.0, 0.0, 0.0)
+        res = out[1]
         return res
 
     original = (monsters.BONZUMI.cost, monsters.SIPZAP.cost,

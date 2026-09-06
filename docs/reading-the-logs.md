@@ -1,72 +1,75 @@
 # Reading the training log
 
 ```
-iter  315  BS  44.3% PB  55.7%  n=409  roll  41.3%  turns  17.9  match 87.3%
-           dmg 143.1  fires 13.1  decisive 100%  evo 1.44  wp 0.111  1401/s  ent 0.43
+  iter    vs-heur    self   turns   match    evo entropy  waste  step/s
+   120      34.2%   41.2%    17.1   90.4%   1.47   0.41  0.096    1400
+   121      36.0%   41.0%    17.0   90.1%   1.51   0.42  0.096    1401
+       evaluation: playing Bonzumi+Sipzap 31%, playing Pelijet+Barbenin 28%
 ```
 
-Every field, what it means, and what a change in it is telling you.
+The header reprints every 20 rows. A `<-` suffix appears only when something
+needs attention.
 
-## The fields
+## The columns
 
-| field | what it is | reference |
+| column | what it is | reference |
 |---|---|---|
-| `iter` | iteration number. One iteration is `--steps` transitions | — |
-| `BS` / `PB` | win rate **this iteration** for Bonzumi+Sipzap and Pelijet+Barbenin. Noisy; read `roll` instead | 50% = balanced |
-| `n` | games that finished this iteration. **Small `n` makes `BS` meaningless** | 300-500 is solid |
-| `roll` | rolling win rate over the last 4000 games, from Bonzumi+Sipzap's side. **This is the trustworthy one** | solver says 46.0% |
-| `turns` | turns to win, averaged over decisive games. **The best single measure of skill** | random-over-matches 26.4, **heuristic 16.0** |
-| `match` | share of swaps that cleared tiles. The rest were repositions or wasted | random 10.2%, **heuristic 96.3%** |
-| `dmg` | damage per game, **both sides combined** | ceiling ~142.7 |
-| `fires` | monster activations per game, both sides | heuristic ~11 |
-| `decisive` | games ending in a kill rather than the 60-turn timeout | must reach 100% |
-| `evo` | evolutions per game, **both sides combined** | **heuristic 1.73** |
-| `wp` | current waste penalty, annealing to 0 | starts 0.15 |
-| `N/s` | training throughput | — |
-| `ent` | policy entropy. Uniform over 60 actions is ln(60) = 4.09 | collapse below ~0.3 is a risk |
-| `vs heuristic` | evaluated every `--eval-every`: the network against the hand-tuned policy, playing each team | 50% = matched it |
+| `iter` | iteration. One iteration is `--steps` transitions | — |
+| `vs-heur` | **win rate against the hand-tuned policy in this iteration's training games.** The headline number once `--vs-heuristic` is on | 50% = matched it |
+| `self` | rolling win rate for Bonzumi+Sipzap over the last 4000 games. A measure of the **teams**, not of training | solver says 46.0% |
+| `turns` | turns to win, over decisive games. The best single measure of skill | matches-only 26.4, **hand-tuned 16.0** |
+| `match` | share of swaps that cleared tiles | random 10.2%, **hand-tuned 96.3%** |
+| `evo` | evolutions per game, both sides | **hand-tuned 1.73** |
+| `entropy` | policy entropy. Uniform over 60 actions is 4.09 | below 0.3 is a risk |
+| `waste` | current wasted-move penalty, annealing to 0 | starts 0.15 |
+| `step/s` | throughput | — |
 
-**`dmg`, `fires` and `evo` count both sides.** The `mm-eval` breakdown reports
-one side at a time, so its numbers are roughly half these. Do not compare them
-directly.
+The `evaluation:` line appears every `--eval-every` iterations. It is the same
+measurement as `vs-heur` but on fixed games rather than training ones, and it
+reports each team separately.
+
+**`turns`, `match` and `evo` count both sides.** The `mm-eval` breakdown reports
+one side at a time, so its numbers are roughly half. Don't compare directly.
+
+## Flags
+
+A suffix appears when a metric needs attention:
+
+| flag | meaning |
+|---|---|
+| `decisive N%` | fewer than 99% of games ended in a kill. Early on this is normal; later it means play has degraded |
+| `entropy low` | below 0.3 — the policy has stopped exploring. If the other columns are also flat, that is premature convergence |
+| `not matching` | match rate under 20% after iteration 20 — exploration has failed and the agent never found matching |
 
 ## What a change means
 
-**`match` rising** — the agent is learning the mechanical game. This moves first
-and fastest. It is *not* evidence of strategy; random-over-matches gets 95%.
+**`vs-heur` rising** — the only unambiguous progress signal. Everything else can
+improve while the agent stays unable to beat a real opponent.
 
-**`turns` falling** — the agent is learning *which* match to make. This is the
-real skill signal. Below 26.4 it beats random-over-matches; at 16.0 it has
-matched the hand-tuned policy.
+**`turns` falling** — learning *which* match to make. Below 26.4 it beats picking
+a random match; at 16.0 it has matched the hand-tuned policy.
 
-**`decisive` rising to 100%** — games are being won rather than timing out. Until
-this happens the terminal reward is near zero and almost nothing is being
-learned from winning.
+**`match` rising** — learning the mechanical game. Moves first and fastest, and
+is *not* evidence of strategy: picking random matches already gets 95%.
 
-**`evo` rising** — it has found the evolution decision, which has *no immediate
-payoff*: it costs a move and changes nobody's HP. Skipping evolution costs the
-hand-tuned policy 11.7 points of win rate, so an agent stuck near 0 is leaving a
-lot behind.
+**`evo` rising** — it found the evolution decision, which has no immediate
+payoff: it costs a move and changes nobody's health. Skipping evolution costs
+the hand-tuned policy 11.7 points.
 
-**`dmg` at ~142 but `turns` still high** — it generates plenty of mana and
-converts it badly. Look at `mm-eval` for damage-per-mana and the per-monster
-split.
+**`entropy` falling** — committing to a strategy. Healthy while other columns
+improve; a warning when they have stopped.
 
-**`ent` falling** — the policy is committing. Healthy while other metrics
-improve. If `ent` keeps dropping while `match` and `turns` have stalled, that is
-premature convergence: roll back to a numbered snapshot and raise `--entropy`.
-
-**`roll` drifting** — with one network playing both teams, this is a measurement
-of the **rosters**, not of training. Expect it to be noisy early and to settle as
-`turns` plateaus. Discount it entirely while `wp` and shaping are still large,
-because both distort what the agent optimises.
+**`self` drifting** — with one network playing both teams this measures the
+**rosters**. Discount it while the network is weak: its known weaknesses are
+team-specific, so a poorly-trained agent makes whichever team it handles worse
+look worse than it is.
 
 ## Warning signs
 
 | symptom | meaning |
 |---|---|
 | `match` stuck near 10% | exploration failed; the agent never found matching |
-| `match` collapses as `wp` reaches 0 | matching was only enforced, never learned |
-| `decisive` stuck at 0% | no terminal signal; nothing to learn from |
-| `ent` below 0.3 with metrics flat | premature convergence |
-| `n` small and `BS` swinging wildly | sample-size noise, not a real change |
+| `match` collapses as `waste` reaches 0 | matching was enforced, never learned |
+| `decisive` stuck near 0% | no terminal signal; nothing to learn from winning |
+| `entropy` under 0.3 with `turns` flat | premature convergence — roll back to a snapshot and raise `--entropy` |
+| `vs-heur` flat while `turns` improves | it is getting better at beating itself, not at playing |

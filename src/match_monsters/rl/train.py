@@ -20,6 +20,8 @@ import random
 import signal
 import time
 
+from collections import Counter
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -110,16 +112,54 @@ def ppo_update(net, opt, buf, ret, adv, device, epochs, batch, clip, vf, ent):
     return out
 
 
+# The two strongest hand-tuned policies for each team, by the solver's floor.
+# Drawing from two rather than one means the opponent varies slightly between
+# games, so the agent cannot overfit to a single fixed style.
+HEURISTICS_MINE = ['bon_hdeny', 'bon_deny']       # floors 45.8%, 43.2%
+HEURISTICS_THEIRS = ['pel_deny', 'self_first']    # hold my best to 43.5%, 44.2%
+
+
+def heuristic_for(duel, side, rng):
+    """A hand-tuned policy suited to whichever team holds that seat, drawn at
+    random from the two best for that team."""
+    from match_monsters.game import engine as _e
+    from match_monsters.rl import evaluate
+    if duel.teams[side] is _e.MY_TEAM:
+        pol = ai.MY_POLICIES[rng.choice(HEURISTICS_MINE)]
+    else:
+        pol = ai.FOE_POLICIES[rng.choice(HEURISTICS_THEIRS)]
+    return evaluate.HeuristicAgent(pol)
+
+
 @torch.no_grad()
 def rollout(net, duels, rngs, device, steps, teams_ref, max_turns, shaping,
-            match_only_p=0.0, waste_penalty=0.0):
-    """Every live game steps together in ONE batched forward pass -- possible
-    because the observation is side-relative, so the same net answers for
-    whichever side happens to be on move."""
+            match_only_p=0.0, waste_penalty=0.0,
+            opp_kind=None, opp_net=None, learner_seat=None):
+    """Step every live game, batching the learner's decisions into one forward
+    pass -- possible because the observation is side-relative.
+
+    `opp_kind[i]` says what game i is:
+      'self'       the learner plays both seats and trains on both
+      'past'       one seat is a frozen earlier snapshot of itself
+      'heuristic'  one seat is the hand-tuned policy
+
+    In the last two, only the learner's own moves are trained on. Training
+    against nothing but the current policy is how self-play collapses: the
+    agent becomes excellent at beating itself and stays helpless against
+    anything it has never seen.
+    """
     buf = Buffer()
     results = []
-    tele = []            # one row per completed game
+    tele = []
+    wins_vs = Counter()
     last_ix, last_diff, ep_no = {}, {}, [0] * len(duels)
+    n = len(duels)
+    opp_kind = list(opp_kind) if opp_kind is not None else ['self'] * n
+    learner_seat = list(learner_seat) if learner_seat is not None else [0] * n
+    heur = {}
+
+    def is_learner(i, d):
+        return opp_kind[i] == 'self' or d.active == learner_seat[i]
 
     def credit(i, side, diff, terminal=None):
         key = (i, side)
@@ -132,8 +172,64 @@ def rollout(net, duels, rngs, device, steps, teams_ref, max_turns, shaping,
                 return
         last_diff[key] = diff
 
+    def finish(i):
+        d = duels[i]
+        r0 = d.result
+        mine_first = d.teams[0] is teams_ref[0]
+        results.append(r0 if mine_first else 1.0 - r0)
+        if opp_kind[i] != 'self':
+            ls = learner_seat[i]
+            won = r0 if ls == 0 else 1.0 - r0
+            wins_vs[opp_kind[i] + '_w'] += won
+            wins_vs[opp_kind[i] + '_n'] += 1
+        for sd in (0, 1):
+            if opp_kind[i] != 'self' and sd != learner_seat[i]:
+                continue
+            term = (2 * r0 - 1) if sd == 0 else (1 - 2 * r0)
+            dd = (d.sides[sd].hp - d.sides[1 - sd].hp) / rules_base()
+            credit(i, sd, dd, terminal=term)
+        st = d.st
+        tele.append((d.turn, d.n_swaps, d.n_matched, d.n_big,
+                     sum(v for k, v in st.items() if '/dmg_' in k),
+                     sum(v for k, v in st.items() if '/fires_' in k),
+                     sum(v for k, v in st.items() if '/wasted_' in k),
+                     sum(v for k, v in st.items() if '/mana_' in k),
+                     1.0 if r0 in (0.0, 1.0) else 0.0,
+                     sum(v for k, v in st.items() if '/evolve_' in k),
+                     sum(v for k, v in st.items() if k.endswith('/boosts')),
+                     sum(v for k, v in st.items() if k.endswith('/berries'))))
+        for sd in (0, 1):
+            last_ix.pop((i, sd), None)
+            last_diff.pop((i, sd), None)
+        ep_no[i] += 1
+        heur.pop(i, None)
+        rngs[i] = random.Random(rngs[i].randrange(1 << 30))
+        duels[i] = Duel(rngs[i], duels[i].teams, max_turns=max_turns)
+
     while len(buf) < steps:
-        live = [i for i, d in enumerate(duels) if not d.done]
+        # 1. opponents move first; their decisions are played, never trained on
+        for i in [j for j, d in enumerate(duels)
+                  if not d.done and not is_learner(j, d)]:
+            d = duels[i]
+            if opp_kind[i] == 'heuristic':
+                if i not in heur:
+                    heur[i] = heuristic_for(d, 1 - learner_seat[i], rngs[i])
+                a = int(heur[i].act_batch([d])[0])
+            else:
+                b, sc = d.observe()
+                m = d.legal_mask()
+                lg, _v = opp_net(torch.as_tensor(b[None], device=device),
+                                 torch.as_tensor(sc[None], device=device),
+                                 torch.as_tensor(m[None], device=device))
+                a = int(torch.distributions.Categorical(logits=lg).sample())
+            d.step(a)
+            if d.done:
+                finish(i)
+
+        # 2. every learner decision in one batched forward pass
+        live = [i for i, d in enumerate(duels) if not d.done and is_learner(i, d)]
+        if not live:
+            continue
         obs = [duels[i].observe() for i in live]
         mo = np.random.rand(len(live)) < match_only_p
         masks = np.asarray([duels[i].legal_mask(bool(mo[k]))
@@ -146,7 +242,8 @@ def rollout(net, duels, rngs, device, steps, teams_ref, max_turns, shaping,
         dist = torch.distributions.Categorical(logits=logits)
         acts = dist.sample()
         lps = dist.log_prob(acts).cpu().numpy()
-        acts = acts.cpu().numpy(); vals = vals.cpu().numpy()
+        acts = acts.cpu().numpy()
+        vals = vals.cpu().numpy()
         for k, i in enumerate(live):
             d = duels[i]
             side = d.active
@@ -156,41 +253,11 @@ def rollout(net, duels, rngs, device, steps, teams_ref, max_turns, shaping,
                          float(lps[k]), float(vals[k]), (i, side, ep_no[i]))
             last_ix[(i, side)] = ix
             d.step(int(acts[k]))
-            # A move that clears nothing is a wasted move. Penalising it
-            # directly gives the losing actions GRADIENT, which masking them
-            # does not -- a masked logit is never sampled, never updated, and
-            # springs back the moment the mask is lifted. Annealed to zero, so
-            # the final policy can still learn that repositioning is sometimes
-            # the right move.
             if waste_penalty and not d.last_matched and int(acts[k]) < N_SWAP:
                 buf.r[ix] -= waste_penalty
             if d.done:
-                # report by TEAM, not by seat: if my team is in seat 1 then my
-                # win rate is the complement of seat 0's result
-                mine_first = d.teams[0] is teams_ref[0]
-                results.append(d.result if mine_first else 1.0 - d.result)
-                st = d.st
-                dmg = sum(v for k, v in st.items() if '/dmg_' in k)
-                fires = sum(v for k, v in st.items() if '/fires_' in k)
-                waste = sum(v for k, v in st.items() if '/wasted_' in k)
-                mana = sum(v for k, v in st.items() if '/mana_' in k)
-                evos = sum(v for k, v in st.items() if '/evolve_' in k)
-                boosts = sum(v for k, v in st.items() if k.endswith('/boosts'))
-                berries = sum(v for k, v in st.items() if k.endswith('/berries'))
-                tele.append((d.turn, d.n_swaps, d.n_matched, d.n_big,
-                             dmg, fires, waste, mana,
-                             1.0 if d.result in (0.0, 1.0) else 0.0,
-                             evos, boosts, berries))
-                for sd in (0, 1):
-                    term = (2 * d.result - 1) if sd == 0 else (1 - 2 * d.result)
-                    dd = (d.sides[sd].hp - d.sides[1 - sd].hp) / rules_base()
-                    credit(i, sd, dd, terminal=term)
-                last_ix.pop((i, 0), None); last_ix.pop((i, 1), None)
-                last_diff.pop((i, 0), None); last_diff.pop((i, 1), None)
-                ep_no[i] += 1
-                rngs[i] = random.Random(rngs[i].randrange(1 << 30))
-                duels[i] = Duel(rngs[i], duels[i].teams, max_turns=max_turns)
-    return buf, results, tele
+                finish(i)
+    return buf, results, tele, wins_vs
 
 
 def save_checkpoint(path, payload):
@@ -274,6 +341,16 @@ def main():
     ap.add_argument('--waste-penalty', type=float, default=0.15,
                     help='reward subtracted for a move that clears nothing, '
                          'annealed away over --match-curriculum')
+    ap.add_argument('--vs-heuristic', type=float, default=0.0,
+                    help='fraction of training games played against the '
+                         'hand-tuned policy instead of against itself. Pure '
+                         'self-play converges to beating its own policy and '
+                         'stays helpless against anything else.')
+    ap.add_argument('--vs-past', type=float, default=0.0,
+                    help='fraction played against a frozen earlier snapshot')
+    ap.add_argument('--snap-every', type=int, default=25,
+                    help='iterations between snapshots kept for --vs-past')
+    ap.add_argument('--pool', type=int, default=5)
     ap.add_argument('--match-curriculum', type=float, default=0.6,
                     help='fraction of training over which the "matches only" '
                          'restriction is annealed from 1.0 to 0. Set 0 to '
@@ -357,6 +434,9 @@ def main():
         f'lr {args.lr}  entropy {args.entropy}->{args.entropy_final}  '
         f'shaping {args.shaping}  waste_penalty {args.waste_penalty}')
 
+    opp_net = nets.ActorCritic(**arch).to(device).eval()
+    past_pool = []
+    pick_rng = random.Random(7)
     total, recent, t0 = 0, [], time.time()
     for it in range(start, args.iters + 1):
         if _STOP:
@@ -367,8 +447,24 @@ def main():
         prog = min(1.0, it / max(1e-9, args.iters * args.match_curriculum))
         mo_p = 0.0                      # masking is kept only for comparison
         wp = args.waste_penalty * (1.0 - prog)
-        buf, results, tele = rollout(net, duels, rngs, device, args.steps, teams,
-                                     args.max_turns, shaping, mo_p, wp)
+        # decide what each game is this iteration
+        kinds, seats = [], []
+        for _i in range(args.games):
+            r = pick_rng.random()
+            if r < args.vs_heuristic:
+                kinds.append('heuristic')
+            elif r < args.vs_heuristic + args.vs_past and past_pool:
+                kinds.append('past')
+            else:
+                kinds.append('self')
+            seats.append(pick_rng.randrange(2))
+        if 'past' in kinds and past_pool:
+            opp_net.load_state_dict(pick_rng.choice(past_pool))
+
+        buf, results, tele, wins_vs = rollout(
+            net, duels, rngs, device, args.steps, teams, args.max_turns,
+            shaping, mo_p, wp, opp_kind=kinds, opp_net=opp_net,
+            learner_seat=seats)
         ret, adv = gae(buf, args.gamma, args.lam)
         stats = ppo_update(net, opt, buf, ret, adv, device, args.epochs,
                            args.batch, args.clip, args.vf, ent)
@@ -392,6 +488,13 @@ def main():
                 'boosts': float(T[:, 10].mean()),
                 'berries': float(T[:, 11].mean()),
             }
+        if args.snap_every and it % args.snap_every == 0 and args.vs_past:
+            past_pool.append({k: v.detach().cpu().clone()
+                              for k, v in net.state_dict().items()})
+            past_pool[:] = past_pool[-args.pool:]
+
+        beat_h = (100 * wins_vs['heuristic_w'] / wins_vs['heuristic_n']
+                  if wins_vs['heuristic_n'] else None)
         ev_a = ev_b = None
         if args.eval_every and (it % args.eval_every == 0 or it == 1):
             ev_a, ev_b = eval_vs_heuristics(net, device, args.eval_games,
@@ -405,19 +508,34 @@ def main():
             'entropy_A': stats['entropy'], 'entropy_B': stats['entropy'],
             'vloss_A': stats['value_loss'], 'vloss_B': stats['value_loss'],
             'shaping': shaping, 'entropy_coef': ent, 'waste_penalty': wp,
-            'A_vs_heuristic': ev_a, 'B_vs_heuristic': ev_b, **tel})
+            'A_vs_heuristic': ev_a, 'B_vs_heuristic': ev_b,
+            'train_vs_heuristic': beat_h,
+            'games_vs_heuristic': wins_vs['heuristic_n'], **tel})
         progress.write(run_id, state)
-        ev_txt = '' if ev_a is None else f'  | vs heuristic  as-A {ev_a:.0f}%  as-B {ev_b:.0f}%'
-        say(f'iter {it:4d}  BS {wr_now:5.1f}% PB {100 - wr_now:5.1f}%  '
-            f'n={len(results):<4d} roll {wr:5.1f}%  '
-              f'turns {tel.get("turns_to_win") or float("nan"):5.1f}  '
-              f'match {tel.get("match_rate", 0):4.1f}%  '
-              f'dmg {tel.get("damage", 0):5.1f}  '
-              f'fires {tel.get("fires", 0):4.1f}  '
-              f'decisive {tel.get("decisive", 0):3.0f}%  '
-            f'evo {tel.get("evolutions", 0):4.2f}  '
-              f'wp {wp:.3f}  '
-            f'{total/max(el,1e-9):.0f}/s  ent {stats["entropy"]:.2f}{ev_txt}')
+        # one aligned row per iteration, header repeated so it stays readable
+        if it == start or (it - start) % 20 == 0:
+            say('%6s %10s %7s %7s %7s %6s %6s %6s %7s'
+                % ('iter', 'vs-heur', 'self', 'turns', 'match', 'evo',
+                   'entropy', 'waste', 'step/s'))
+        vsh = ('%.1f%%' % beat_h) if beat_h is not None else '-'
+        turns_s = ('%.1f' % tel['turns_to_win']) if tel.get('turns_to_win') else '-'
+        flags = []
+        if tel.get('decisive', 100) < 99:
+            flags.append('decisive %.0f%%' % tel['decisive'])
+        if stats['entropy'] < 0.3:
+            flags.append('entropy low')
+        if tel.get('match_rate', 0) < 20 and it > 20:
+            flags.append('not matching')
+        say('%6d %10s %6.1f%% %7s %6.1f%% %6.2f %6.2f %6.3f %7.0f%s'
+            % (it, vsh, wr, turns_s, tel.get('match_rate', 0),
+               tel.get('evolutions', 0), stats['entropy'], wp,
+               total / max(el, 1e-9),
+               ('   <- ' + ', '.join(flags)) if flags else ''))
+        if ev_a is not None:
+            say('       evaluation: playing Bonzumi+Sipzap %.0f%%, '
+                'playing Pelijet+Barbenin %.0f%% against the hand-tuned policy'
+                % (ev_a, ev_b))
+
         payload = {'net': net.state_dict(), 'opt': opt.state_dict(),
                    'arch': arch, 'iter': it, 'shared': True,
                    'run_id': run_id, 'steps': total}
