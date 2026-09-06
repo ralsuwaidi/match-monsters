@@ -174,9 +174,13 @@ def rollout(net, duels, rngs, device, steps, teams_ref, max_turns, shaping,
                 fires = sum(v for k, v in st.items() if '/fires_' in k)
                 waste = sum(v for k, v in st.items() if '/wasted_' in k)
                 mana = sum(v for k, v in st.items() if '/mana_' in k)
+                evos = sum(v for k, v in st.items() if '/evolve_' in k)
+                boosts = sum(v for k, v in st.items() if k.endswith('/boosts'))
+                berries = sum(v for k, v in st.items() if k.endswith('/berries'))
                 tele.append((d.turn, d.n_swaps, d.n_matched, d.n_big,
                              dmg, fires, waste, mana,
-                             1.0 if d.result in (0.0, 1.0) else 0.0))
+                             1.0 if d.result in (0.0, 1.0) else 0.0,
+                             evos, boosts, berries))
                 for sd in (0, 1):
                     term = (2 * d.result - 1) if sd == 0 else (1 - 2 * d.result)
                     dd = (d.sides[sd].hp - d.sides[1 - sd].hp) / rules_base()
@@ -372,7 +376,7 @@ def main():
         recent = (recent + results)[-4000:]
         wr = 100 * float(np.mean(recent)) if recent else float('nan')
         wr_now = 100 * float(np.mean(results)) if results else float('nan')
-        T = np.asarray(tele, np.float64) if tele else np.zeros((0, 9))
+        T = np.asarray(tele, np.float64) if tele else np.zeros((0, 12))
         tel = {}
         if len(T):
             tel = {
@@ -384,6 +388,9 @@ def main():
                 'wasted_mana': float(T[:, 6].mean()),
                 'mana': float(T[:, 7].mean()),
                 'decisive': 100 * float(T[:, 8].mean()),
+                'evolutions': float(T[:, 9].mean()),
+                'boosts': float(T[:, 10].mean()),
+                'berries': float(T[:, 11].mean()),
             }
         ev_a = ev_b = None
         if args.eval_every and (it % args.eval_every == 0 or it == 1):
@@ -408,6 +415,7 @@ def main():
               f'dmg {tel.get("damage", 0):5.1f}  '
               f'fires {tel.get("fires", 0):4.1f}  '
               f'decisive {tel.get("decisive", 0):3.0f}%  '
+            f'evo {tel.get("evolutions", 0):4.2f}  '
               f'wp {wp:.3f}  '
             f'{total/max(el,1e-9):.0f}/s  ent {stats["entropy"]:.2f}{ev_txt}')
         payload = {'net': net.state_dict(), 'opt': opt.state_dict(),

@@ -12,7 +12,7 @@ from match_monsters.rl.selfplay import Duel, SWAP_IX
 def run(pick, n=300, seed=4):
     rng = random.Random(seed)
     teams = (engine.MY_TEAM, engine.FOE_TEAM)
-    dmg, turns, mrate, dec = [], [], [], 0
+    dmg, turns, mrate, evo, berry, dec = [], [], [], [], [], 0
     for _ in range(n):
         d = Duel(random.Random(rng.randrange(1 << 30)), teams, max_turns=60)
         while not d.done:
@@ -20,8 +20,11 @@ def run(pick, n=300, seed=4):
         dmg.append(sum(v for k, v in d.st.items() if '/dmg_' in k))
         turns.append(d.turn)
         mrate.append(d.n_matched / max(1, d.n_swaps))
+        evo.append(sum(v for k, v in d.st.items() if '/evolve_' in k))
+        berry.append(sum(v for k, v in d.st.items() if k.endswith('/berries')))
         dec += 1 if d.result in (0.0, 1.0) else 0
-    return np.mean(dmg), np.mean(turns), 100 * np.mean(mrate), 100 * dec / n
+    return (np.mean(dmg), np.mean(turns), 100 * np.mean(mrate), 100 * dec / n,
+            np.mean(evo), np.mean(berry))
 
 
 def uniform_legal(d):
@@ -41,16 +44,21 @@ def heuristic(d):
 
 
 def main():
-        print('%-28s %9s %8s %12s %10s'
-              % ('policy', 'damage', 'turns', 'match rate', 'decisive'))
-        for name, f in (('uniform over legal moves', uniform_legal),
-                        ('uniform over MATCHES only', matches_only),
-                        ('hand-tuned heuristic', heuristic)):
-            dm, tn, mr, de = run(f)
-            print('%-28s %9.1f %8.1f %11.1f%% %9.0f%%' % (name, dm, tn, mr, de))
-        print('\nA trained agent is only interesting once its match rate is well '
-              'above 10% and\nits turns-to-win drops below 26 -- that is where '
-              'strategy starts to matter.')
+    print('%-28s %9s %8s %11s %9s %8s %8s'
+          % ('policy', 'damage', 'turns', 'match rate', 'decisive',
+             'evolves', 'berries'))
+    for name, f in (('uniform over legal moves', uniform_legal),
+                    ('uniform over MATCHES only', matches_only),
+                    ('hand-tuned heuristic', heuristic)):
+        dm, tn, mr, de, ev, be = run(f)
+        print('%-28s %9.1f %8.1f %10.1f%% %8.0f%% %8.2f %8.1f'
+              % (name, dm, tn, mr, de, ev, be))
+    print('\nA trained agent is only interesting once its match rate is well '
+          'above 10% and\nits turns-to-win drops below 26 -- that is where '
+          'strategy starts to matter.')
+    print('"evolves" is monsters evolved per game: skipping evolution costs '
+          'the heuristic\n11.7 points of win rate, so an agent that never '
+          'reaches ~1.0 is leaving that behind.')
 
 
 if __name__ == '__main__':

@@ -223,3 +223,22 @@ def test_selfplay_win_rate_follows_the_team_not_the_seat():
         for mon, cost in zip((monsters.BONZUMI, monsters.SIPZAP,
                               monsters.PELIJET, monsters.BARBENIN), original):
             object.__setattr__(mon, 'cost', cost)
+
+
+def test_rl_environment_records_evolutions():
+    """The RL Duel evolves monsters itself rather than going through
+    engine.play_turn, so it has to write the same counters -- otherwise the
+    training telemetry reports zero evolutions no matter what happens."""
+    import random as _r
+
+    from match_monsters.rl.selfplay import Duel, N_SWAP
+
+    d = Duel(_r.Random(0), (engine.MY_TEAM, engine.FOE_TEAM))
+    d.sides[0].berries = rules.BERRIES_TO_EVOLVE
+    d.step(N_SWAP)                                   # evolve the first monster
+    assert sum(v for k, v in d.st.items() if '/evolve_' in k) == 1
+    assert d.sides[0].evolved['red'] is True
+
+    d.sides[0].berries = rules.BERRIES_TO_EVOLVE     # again -> a boost
+    d.step(N_SWAP)
+    assert sum(v for k, v in d.st.items() if k.endswith('/boosts')) == 1

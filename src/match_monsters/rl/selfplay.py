@@ -158,8 +158,12 @@ class Duel:
                 me.berries -= rules.BERRIES_TO_EVOLVE
                 if not me.evolved[colour]:
                     me.evolved[colour] = True
+                    # record it the same way engine.play_turn does, or the
+                    # telemetry reports zero evolutions for everyone
+                    self.st[me.label + '/evolve_' + me.mons[colour].name] += 1
                 else:
                     me.mana[colour] += rules.BOOST_MANA
+                    self.st[me.label + '/boosts'] += 1
                 engine.fire_all(me, foe, self.g, self.st)
             self.moves -= 1
         else:

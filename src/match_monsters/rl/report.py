@@ -58,21 +58,21 @@ def main():
         return
 
     print('LEARNING CURVE')
-    print('%6s %7s %8s %8s %8s %8s %7s %7s %8s'
+    print('%6s %7s %8s %8s %8s %8s %7s %7s %7s %8s'
           % ('iter', 'win%', 'turns', 'match%', 'damage', 'decisive',
-             'fires', 'entropy', 'vs heur'))
+             'evolves', 'fires', 'entropy', 'vs heur'))
     step = max(1, len(h) // 14)
     rows = h[::step]
     if h[-1] not in rows:
         rows.append(h[-1])
     for r in rows:
         ev = r.get('A_vs_heuristic')
-        print('%6d %7.1f %8s %8.1f %8.1f %7.0f%% %7.1f %7.2f %8s'
+        print('%6d %7.1f %8s %8.1f %8.1f %7.0f%% %7.2f %7.1f %7.2f %8s'
               % (r['iter'], r.get('wr') or float('nan'),
                  ('%.1f' % r['turns_to_win']) if r.get('turns_to_win') else '-',
                  r.get('match_rate', 0), r.get('damage', 0),
-                 r.get('decisive', 0), r.get('fires', 0),
-                 r.get('entropy_A') or 0,
+                 r.get('decisive', 0), r.get('evolutions', 0),
+                 r.get('fires', 0), r.get('entropy_A') or 0,
                  ('%.0f%%' % ev) if ev is not None else '-'))
     print()
     print('REFERENCE POINTS  (what those numbers mean)')
