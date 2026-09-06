@@ -74,8 +74,8 @@ class HeuristicAgent:
         return SWAP_IX.get(tuple(mv), 0)
 
 
-def play(agent0, agent1, n_games, seed=0, batch=128, max_turns=60):
-    teams = (engine.MY_TEAM, engine.FOE_TEAM)
+def play(agent0, agent1, n_games, seed=0, batch=128, max_turns=60, teams=None):
+    teams = teams or (engine.MY_TEAM, engine.FOE_TEAM)
     rng = random.Random(seed)
     results = []
     while len(results) < n_games:
@@ -100,6 +100,32 @@ def wilson(p, n, z=1.96):
     c = p + z * z / (2 * n)
     h = z * math.sqrt(max(0.0, p * (1 - p) / n) + z * z / (4 * n * n))
     return (c - h) / d, (c + h) / d
+
+
+def team_balance(agent, n_games=2000, seed=99, max_turns=60):
+    """Which TEAM is actually winning?
+
+    Seat 0 is always the first player, so simply reporting seat 0's win rate
+    conflates the team with the first-move advantage. This plays half the games
+    with each team in seat 0 and reports the result by team, with the turn-order
+    split broken out so the two effects can be told apart.
+    """
+    MINE, THEIRS = engine.MY_TEAM, engine.FOE_TEAM
+    half = n_games // 2
+    # mine in seat 0 -> mine moves first; result 1.0 means seat 0 won
+    a, _ = play(agent, agent, half, seed=seed, max_turns=max_turns,
+                teams=(MINE, THEIRS))
+    # theirs in seat 0 -> mine moves second, and mine winning means seat 0 LOST
+    b, _ = play(agent, agent, half, seed=seed + 1, max_turns=max_turns,
+                teams=(THEIRS, MINE))
+    mine_first, mine_second = a, 1.0 - b
+    return {
+        'mine_overall': 100 * (mine_first + mine_second) / 2,
+        'mine_first': 100 * mine_first,
+        'mine_second': 100 * mine_second,
+        'first_move_edge': 100 * (mine_first - mine_second) / 2,
+        'n': half * 2,
+    }
 
 
 def main():
@@ -127,6 +153,20 @@ def main():
     netB = NetAgent(B, device, greedy=not args.sample)
     hA = HeuristicAgent(ai.MY_POLICIES['bon_hdeny'])
     hB = HeuristicAgent(ai.FOE_POLICIES['pel_deny'])
+
+    if ck.get('shared'):
+        print('TEAM BALANCE  --  the same network plays both teams, with the')
+        print('starting seat alternated so turn order cannot be mistaken for')
+        print('team strength.\n')
+        r = team_balance(netA, args.games * 4)
+        lo, hi = wilson(r['mine_overall'] / 100, r['n'])
+        print('  Bonzumi + Sipzap win rate   %.1f%%   (95%% CI %.1f-%.1f, n=%d)'
+              % (r['mine_overall'], 100 * lo, 100 * hi, r['n']))
+        print('      moving first             %.1f%%' % r['mine_first'])
+        print('      moving second            %.1f%%' % r['mine_second'])
+        print('      first-move advantage     %+.1f points' % r['first_move_edge'])
+        print('  above 50% means Bonzumi + Sipzap is the stronger roster.')
+        print('  the hand-tuned solver puts this at 46.0%.\n')
 
     rows = [
         ('net A (Bonzumi+Sipzap)  vs  net B (Pelijet+Barbenin)', netA, netB),

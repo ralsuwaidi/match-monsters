@@ -111,7 +111,7 @@ def ppo_update(net, opt, buf, ret, adv, device, epochs, batch, clip, vf, ent):
 
 
 @torch.no_grad()
-def rollout(net, duels, rngs, device, steps, teams, max_turns, shaping,
+def rollout(net, duels, rngs, device, steps, teams_ref, max_turns, shaping,
             match_only_p=0.0, waste_penalty=0.0):
     """Every live game steps together in ONE batched forward pass -- possible
     because the observation is side-relative, so the same net answers for
@@ -165,7 +165,10 @@ def rollout(net, duels, rngs, device, steps, teams, max_turns, shaping,
             if waste_penalty and not d.last_matched and int(acts[k]) < N_SWAP:
                 buf.r[ix] -= waste_penalty
             if d.done:
-                results.append(d.result)
+                # report by TEAM, not by seat: if my team is in seat 1 then my
+                # win rate is the complement of seat 0's result
+                mine_first = d.teams[0] is teams_ref[0]
+                results.append(d.result if mine_first else 1.0 - d.result)
                 st = d.st
                 dmg = sum(v for k, v in st.items() if '/dmg_' in k)
                 fires = sum(v for k, v in st.items() if '/fires_' in k)
@@ -182,7 +185,7 @@ def rollout(net, duels, rngs, device, steps, teams, max_turns, shaping,
                 last_diff.pop((i, 0), None); last_diff.pop((i, 1), None)
                 ep_no[i] += 1
                 rngs[i] = random.Random(rngs[i].randrange(1 << 30))
-                duels[i] = Duel(rngs[i], teams, max_turns=max_turns)
+                duels[i] = Duel(rngs[i], duels[i].teams, max_turns=max_turns)
     return buf, results, tele
 
 
@@ -263,7 +266,12 @@ def main():
     run_id = args.run_id or ('sp-' + progress.new_run_id())
     teams = (engine.MY_TEAM, engine.FOE_TEAM)
     rngs = [random.Random(500 + i) for i in range(args.games)]
-    duels = [Duel(rngs[i], teams, max_turns=args.max_turns)
+    # Half the games start with each team in seat 0. Without this, seat 0 is
+    # always Bonzumi + Sipzap AND always the first player, so the reported win
+    # rate cannot separate team strength from the first-move advantage.
+    seatings = [teams if i % 2 == 0 else (teams[1], teams[0])
+                for i in range(args.games)]
+    duels = [Duel(rngs[i], seatings[i], max_turns=args.max_turns)
              for i in range(args.games)]
     nparams = sum(p.numel() for p in net.parameters())
     state = {'run_id': run_id, 'kind': 'neural', 'pid': os.getpid(),
