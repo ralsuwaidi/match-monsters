@@ -1,0 +1,22 @@
+[project]
+name = "match-monsters"
+version = "0.1.0"
+description = "Match Monsters duel simulator and policy solver"
+# pinned below 3.14 because pandas/streamlit wheels do not exist for it yet;
+# uv will fetch a suitable interpreter automatically
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "streamlit>=1.40",
+    "pandas>=2.0",
+]
+
+[project.optional-dependencies]
+# reinforcement learning extras -- install with:  uv sync --extra rl
+rl = [
+    "gymnasium>=0.29",
+    "numpy>=1.26",
+    "torch>=2.2",
+]
+
+[tool.uv]
+package = false

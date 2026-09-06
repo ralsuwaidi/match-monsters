@@ -1,0 +1,17 @@
+# generated at run time
+runs/
+games/
+checkpoints/
+game_state.json
+sample_game.txt
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# os / editors
+.DS_Store
+.idea/
+.vscode/
