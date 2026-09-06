@@ -114,6 +114,17 @@ def behaviour(agent0, agent1, n_games=300, seed=5, max_turns=60):
     rows = {0: Counter(), 1: Counter()}
     games = 0
     results = []
+    # record the charge level whenever a charge monster fires -- firing Sipzap
+    # at honey 0 deals nothing, so this is where conversion efficiency lives
+    honey = {0: Counter(), 1: Counter()}
+    orig_fire = engine.fire
+
+    def spy_fire(side, foe, g, colour, st):
+        mon = side.mons[colour]
+        if mon.charged:
+            honey[0 if side.label == 'me' else 1][side.charges[colour]] += 1
+        return orig_fire(side, foe, g, colour, st)
+    engine.fire = spy_fire
     while games < n_games:
         k = min(128, n_games - games)
         duels = [Duel(random.Random(rng.randrange(1 << 30)), teams,
@@ -150,10 +161,11 @@ def behaviour(agent0, agent1, n_games=300, seed=5, max_turns=60):
                                  if k2.startswith(lbl + '/mana_'))
             rows[0]['turns'] += d.turn
             rows[1]['turns'] += d.turn
+    engine.fire = orig_fire
     for side in (0, 1):
         for k2 in rows[side]:
             rows[side][k2] /= games
-    return rows, 100 * sum(results) / games, games
+    return rows, 100 * sum(results) / games, games, honey
 
 
 def team_balance(agent, n_games=2000, seed=99, max_turns=60):
@@ -228,7 +240,7 @@ def main():
     print('WHERE THE GAMES ARE BEING LOST')
     print('the network in seat 0 against the hand-tuned policy in seat 1,')
     print('both playing Bonzumi + Sipzap and Pelijet + Barbenin respectively.\n')
-    beh, wr, ng = behaviour(netA, hB, 300)
+    beh, wr, ng, honey = behaviour(netA, hB, 300)
     print('  %-18s %12s %12s' % ('per game', 'network', 'heuristic'))
     for key, label in (('damage', 'damage dealt'), ('fires', 'strikes'),
                        ('mana', 'mana earned'), ('wasted_mana', 'mana burnt'),
@@ -236,6 +248,25 @@ def main():
                        ('boosts', 'boosts')):
         print('  %-18s %12.2f %12.2f' % (label, beh[0][key], beh[1][key]))
     print('  %-18s %12.1f %12s' % ('turns per game', beh[0]['turns'], '(shared)'))
+    usable0 = beh[0]['mana'] - beh[0]['wasted_mana']
+    usable1 = beh[1]['mana'] - beh[1]['wasted_mana']
+    print('  %-18s %12.2f %12.2f' % ('usable mana', usable0, usable1))
+    print('  %-18s %12.2f %12.2f' % ('damage per mana',
+                                     beh[0]['damage'] / max(usable0, 1e-9),
+                                     beh[1]['damage'] / max(usable1, 1e-9)))
+    print('  %-18s %12.2f %12.2f' % ('damage per strike',
+                                     beh[0]['damage'] / max(beh[0]['fires'], 1e-9),
+                                     beh[1]['damage'] / max(beh[1]['fires'], 1e-9)))
+    tot = sum(honey[0].values())
+    if tot:
+        print('\n  Sipzap / Ranzap fired at honey level (network, seat 0):')
+        print('  %-10s %10s %10s %10s' % ('honey', 'share', 'damage', 'wasted'))
+        for h in sorted(honey[0]):
+            dmg = [0, 5, 10, 20][min(h, 3)]
+            print('  %-10d %9.0f%% %10d %10s'
+                  % (h, 100 * honey[0][h] / tot, dmg,
+                     'yes' if dmg == 0 else ''))
+        print('  every strike at honey 0 throws 4 mana away for no damage.')
     print('  network win rate in this matchup: %.1f%% over %d games\n' % (wr, ng))
 
     rows = [

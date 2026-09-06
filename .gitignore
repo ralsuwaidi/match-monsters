@@ -2,6 +2,7 @@
 runs/
 games/
 checkpoints/
+*.pt
 game_state.json
 sample_game.txt
 
