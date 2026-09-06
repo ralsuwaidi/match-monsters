@@ -4,6 +4,7 @@ hand-tuned heuristics, so you can see which side actually got better.
     uv run --extra rl python eval_nn.py --games 400
 """
 import argparse
+import os
 import random
 
 import numpy as np
@@ -138,7 +139,10 @@ def main():
     args = ap.parse_args()
 
     device = nets.pick_device(args.device)
-    ck = torch.load(args.ckpt, map_location=device)
+    path = args.ckpt
+    if os.path.isdir(path):                 # accept a directory too
+        path = os.path.join(path, 'selfplay.pt')
+    ck = torch.load(path, map_location=device)
     arch = ck.get('arch', {})
     A = nets.ActorCritic(**arch).to(device).eval()
     B = nets.ActorCritic(**arch).to(device).eval()
@@ -147,7 +151,7 @@ def main():
         print('shared checkpoint: the same network plays both teams')
     else:
         A.load_state_dict(ck['A']); B.load_state_dict(ck['B'])
-    print(f'checkpoint from iteration {ck["iter"]}, device {device}\n')
+    print(f'checkpoint {path}, iteration {ck["iter"]}, device {device}\n')
 
     netA = NetAgent(A, device, greedy=not args.sample)
     netB = NetAgent(B, device, greedy=not args.sample)

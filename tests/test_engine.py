@@ -179,3 +179,36 @@ def test_unknown_config_key_is_rejected():
     with pytest.raises(KeyError):
         runner.apply_cfg({'NOT_A_RULE': 1})
     runner.reset_defaults()
+
+
+def test_selfplay_win_rate_follows_the_team_not_the_seat():
+    """Seat 0 is always the first player. If the reported rate tracked the seat
+    instead of the team, buffing one team would not move it."""
+    torch = pytest.importorskip('torch')
+    import random as _r
+
+    from match_monsters.rl import nets, train
+    from match_monsters.rl.selfplay import Duel
+
+    def measure():
+        net = nets.ActorCritic(32, 1, 64)
+        rngs = [_r.Random(i) for i in range(48)]
+        teams = (engine.MY_TEAM, engine.FOE_TEAM)
+        seats = [teams if i % 2 == 0 else (teams[1], teams[0]) for i in range(48)]
+        duels = [Duel(rngs[i], seats[i], max_turns=40) for i in range(48)]
+        _buf, res, _tele = train.rollout(net, duels, rngs, torch.device('cpu'),
+                                         6000, teams, 40, 0.0, 0.0, 0.0)
+        return res
+
+    original = (monsters.BONZUMI.cost, monsters.SIPZAP.cost)
+    try:
+        object.__setattr__(monsters.BONZUMI, 'cost', 2)
+        object.__setattr__(monsters.SIPZAP, 'cost', 1)
+        buffed = measure()
+        assert buffed, 'no games finished -- test is not measuring anything'
+        assert sum(buffed) / len(buffed) > 0.9, (
+            'buffing Bonzumi + Sipzap must raise the reported win rate; if it '
+            'does not, the metric is following the seat rather than the team')
+    finally:
+        object.__setattr__(monsters.BONZUMI, 'cost', original[0])
+        object.__setattr__(monsters.SIPZAP, 'cost', original[1])

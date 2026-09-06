@@ -371,6 +371,7 @@ def main():
         total += len(buf)
         recent = (recent + results)[-4000:]
         wr = 100 * float(np.mean(recent)) if recent else float('nan')
+        wr_now = 100 * float(np.mean(results)) if results else float('nan')
         T = np.asarray(tele, np.float64) if tele else np.zeros((0, 9))
         tel = {}
         if len(T):
@@ -392,7 +393,7 @@ def main():
         state['iter'] = it
         state['elapsed'] = el
         state['history'].append({
-            'iter': it, 'wr': wr, 'wr_rolling': wr, 'games': len(results),
+            'iter': it, 'wr': wr_now, 'wr_rolling': wr, 'games': len(results),
             'steps': total, 'sps': total / max(el, 1e-9),
             'entropy_A': stats['entropy'], 'entropy_B': stats['entropy'],
             'vloss_A': stats['value_loss'], 'vloss_B': stats['value_loss'],
@@ -400,7 +401,8 @@ def main():
             'A_vs_heuristic': ev_a, 'B_vs_heuristic': ev_b, **tel})
         progress.write(run_id, state)
         ev_txt = '' if ev_a is None else f'  | vs heuristic  as-A {ev_a:.0f}%  as-B {ev_b:.0f}%'
-        say(f'iter {it:4d}  win {wr:5.1f}%  '
+        say(f'iter {it:4d}  BS {wr_now:5.1f}% PB {100 - wr_now:5.1f}%  '
+            f'n={len(results):<4d} roll {wr:5.1f}%  '
               f'turns {tel.get("turns_to_win") or float("nan"):5.1f}  '
               f'match {tel.get("match_rate", 0):4.1f}%  '
               f'dmg {tel.get("damage", 0):5.1f}  '
