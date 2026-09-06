@@ -189,6 +189,46 @@ def rollout(net, duels, rngs, device, steps, teams_ref, max_turns, shaping,
     return buf, results, tele
 
 
+def save_checkpoint(path, payload):
+    """Write atomically. A run killed mid-save -- which is exactly what a
+    recycled Colab runtime does -- must not leave a truncated file behind."""
+    tmp = path + '.tmp'
+    torch.save(payload, tmp)
+    os.replace(tmp, path)
+
+
+def archive(ckpt_dir, payload, it, keep):
+    """Numbered snapshot, so a bad stretch of training can be rolled back to
+    rather than started over."""
+    import glob
+    save_checkpoint(os.path.join(ckpt_dir, f'selfplay-{it:06d}.pt'), payload)
+    old = sorted(glob.glob(os.path.join(ckpt_dir, 'selfplay-[0-9]*.pt')))
+    for p in old[:-keep] if keep > 0 else []:
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
+
+def load_checkpoint(ckpt_dir, device):
+    """Prefer `latest`; fall back to the newest numbered snapshot if it is
+    missing or unreadable."""
+    import glob
+    candidates = [os.path.join(ckpt_dir, 'selfplay.pt')]
+    candidates += sorted(glob.glob(os.path.join(ckpt_dir, 'selfplay-[0-9]*.pt')),
+                         reverse=True)
+    for p in candidates:
+        if not os.path.exists(p):
+            continue
+        try:
+            ck = torch.load(p, map_location=device)
+            return ck, p
+        except Exception as e:
+            print(f'  checkpoint {p} unreadable ({type(e).__name__}), '
+                  f'trying the previous one')
+    return None, None
+
+
 def rules_base():
     from match_monsters import rules
     return float(rules.BASE_HP)
@@ -242,7 +282,14 @@ def main():
     ap.add_argument('--eval-games', type=int, default=200)
     ap.add_argument('--max-turns', type=int, default=60)
     ap.add_argument('--device', default='auto')
-    ap.add_argument('--ckpt', default='checkpoints')
+    ap.add_argument('--ckpt', default='checkpoints',
+                    help='point this at Google Drive on Colab so checkpoints '
+                         'survive the runtime being recycled')
+    ap.add_argument('--save-every', type=int, default=10,
+                    help='iterations between numbered snapshots; the latest '
+                         'checkpoint is written every iteration regardless')
+    ap.add_argument('--keep', type=int, default=5,
+                    help='numbered snapshots to keep (0 = keep them all)')
     ap.add_argument('--resume', action='store_true')
     args = ap.parse_args()
 
@@ -255,13 +302,18 @@ def main():
     opt = torch.optim.Adam(net.parameters(), lr=args.lr)
     path = os.path.join(args.ckpt, 'selfplay.pt')
     start = 1
-    if args.resume and os.path.exists(path):
-        ck = torch.load(path, map_location=device)
-        if ck.get('arch') and ck['arch'] != arch:
-            raise SystemExit(f'checkpoint arch {ck["arch"]} != requested {arch}')
-        net.load_state_dict(ck['net']); opt.load_state_dict(ck['opt'])
-        start = ck['iter'] + 1
-        print(f'resumed at iteration {ck["iter"]}')
+    if args.resume:
+        ck, src = load_checkpoint(args.ckpt, device)
+        if ck is None:
+            print('no checkpoint found, starting from scratch')
+        else:
+            if ck.get('arch') and ck['arch'] != arch:
+                raise SystemExit(f'checkpoint arch {ck["arch"]} != '
+                                 f'requested {arch}')
+            net.load_state_dict(ck['net'])
+            opt.load_state_dict(ck['opt'])
+            start = ck['iter'] + 1
+            print(f'resumed from {src} at iteration {ck["iter"]}')
 
     run_id = args.run_id or ('sp-' + progress.new_run_id())
     teams = (engine.MY_TEAM, engine.FOE_TEAM)
@@ -356,8 +408,12 @@ def main():
               f'decisive {tel.get("decisive", 0):3.0f}%  '
               f'wp {wp:.3f}  '
             f'{total/max(el,1e-9):.0f}/s  ent {stats["entropy"]:.2f}{ev_txt}')
-        torch.save({'net': net.state_dict(), 'opt': opt.state_dict(),
-                    'arch': arch, 'iter': it, 'shared': True}, path)
+        payload = {'net': net.state_dict(), 'opt': opt.state_dict(),
+                   'arch': arch, 'iter': it, 'shared': True,
+                   'run_id': run_id, 'steps': total}
+        save_checkpoint(path, payload)
+        if args.save_every and it % args.save_every == 0:
+            archive(args.ckpt, payload, it, args.keep)
 
     state['status'] = 'stopped' if _STOP else 'done'
     progress.write(run_id, state)

@@ -60,12 +60,43 @@ Resume from a checkpoint (written every iteration to `checkpoints/selfplay.pt`):
 !mm-train --iters 4000 --resume --device cuda
 ```
 
-Mount Drive first if you want checkpoints to survive the runtime recycling:
+## Stopping and resuming
+
+`selfplay.pt` is rewritten **every iteration** and written atomically (to a
+temp file, then renamed), so a run killed at any moment loses at most one
+iteration and can never leave a truncated file. A numbered snapshot is kept
+every `--save-every` iterations (default 10, last 5 retained), so a bad stretch
+of training can be rolled back rather than restarted.
+
+Resuming restores the network, the optimiser state and the iteration counter:
+
+```python
+!mm-train --iters 4000 --resume --device cuda
+```
+
+If the latest checkpoint is unreadable, it falls back to the newest numbered
+snapshot automatically and says so.
+
+Stopping the cell sends SIGINT: the run finishes the iteration it is on, writes
+the checkpoint and exits cleanly. A hard kill or a recycled runtime is also
+safe -- the last completed iteration is already on disk.
+
+**On Colab, put the checkpoints on Drive.** `/content` is wiped when the runtime
+is recycled, and that is the one way to actually lose the work:
 
 ```python
 from google.colab import drive; drive.mount('/content/drive')
 !mm-train --iters 2000 --ckpt /content/drive/MyDrive/mm_ckpt --resume
 ```
+
+Run artefacts (`runs/<id>/progress.json` and `train.log`) can go there too:
+
+```python
+import os; os.environ['MM_RUNS_DIR'] = '/content/drive/MyDrive/mm_runs'
+```
+
+What is *not* preserved across a restart: the rolling win-rate window and the
+in-flight games. Both refill within a couple of iterations.
 
 ## Files needed
 

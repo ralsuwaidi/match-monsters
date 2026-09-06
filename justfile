@@ -116,7 +116,8 @@ train iters="1500":
 train-fg iters="50":
     {{rl}} mm-train --iters {{iters}}
 
-# continue from checkpoints/selfplay.pt
+# continue from the last checkpoint (falls back to a numbered snapshot if the
+# latest is unreadable)
 train-resume iters="4000":
     nohup {{rl}} mm-train --iters {{iters}} --resume > /tmp/mm_nn.log 2>&1 &
     @sleep 2 && echo "resumed; watch with 'just train-log'"
