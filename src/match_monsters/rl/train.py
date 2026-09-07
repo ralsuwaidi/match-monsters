@@ -80,7 +80,8 @@ def gae(buf, gamma, lam):
     return ret, adv
 
 
-def ppo_update(net, opt, buf, ret, adv, device, epochs, batch, clip, vf, ent):
+def ppo_update(net, opt, buf, ret, adv, device, epochs, batch, clip, vf, ent,
+               ref=None, kl_coef=0.0):
     b = torch.as_tensor(np.asarray(buf.b), device=device)
     s = torch.as_tensor(np.asarray(buf.s), device=device)
     m = torch.as_tensor(np.asarray(buf.m), device=device)
@@ -102,13 +103,25 @@ def ppo_update(net, opt, buf, ret, adv, device, epochs, batch, clip, vf, ent):
                             torch.clamp(ratio, 1 - clip, 1 + clip) * ad[j]).mean()
             vl = F.mse_loss(value, rt[j])
             e = dist.entropy().mean()
+            loss = pl + vf * vl - ent * e
+            kl = torch.zeros((), device=device)
+            if ref is not None and kl_coef:
+                with torch.no_grad():
+                    rlogits, _rv = ref(b[j], s[j], m[j])
+                    rlp = torch.log_softmax(rlogits, -1)
+                lp_all = torch.log_softmax(logits, -1)
+                keep = torch.isfinite(rlp) & torch.isfinite(lp_all)
+                kl = ((rlp[keep].exp() * (rlp[keep] - lp_all[keep])).sum()
+                      / len(j))
+                loss = loss + kl_coef * kl
             opt.zero_grad(set_to_none=True)
-            (pl + vf * vl - ent * e).backward()
+            loss.backward()
             torch.nn.utils.clip_grad_norm_(net.parameters(), 0.5)
             opt.step()
             out = {'policy_loss': pl.detach().item(),
                    'value_loss': vl.detach().item(),
-                   'entropy': e.detach().item()}
+                   'entropy': e.detach().item(),
+                   'kl_ref': float(kl.detach())}
     return out
 
 
@@ -182,6 +195,10 @@ def rollout(net, duels, rngs, device, steps, teams_ref, max_turns, shaping,
             won = r0 if ls == 0 else 1.0 - r0
             wins_vs[opp_kind[i] + '_w'] += won
             wins_vs[opp_kind[i] + '_n'] += 1
+            # and split by which TEAM the learner was actually holding
+            tag = 'A' if d.teams[ls] is teams_ref[0] else 'B'
+            wins_vs[opp_kind[i] + '_' + tag + '_w'] += won
+            wins_vs[opp_kind[i] + '_' + tag + '_n'] += 1
         for sd in (0, 1):
             if opp_kind[i] != 'self' and sd != learner_seat[i]:
                 continue
@@ -336,6 +353,11 @@ def main():
     ap.add_argument('--vf', type=float, default=0.5)
     ap.add_argument('--entropy', type=float, default=0.02)
     ap.add_argument('--entropy-final', type=float, default=0.003)
+    ap.add_argument('--kl-ref', type=float, default=0.0,
+                    help='penalty on drifting from the policy training started '
+                         'from. Essential when starting from a behaviour-cloned '
+                         'network: without it PPO wanders off a good policy '
+                         'long before it finds a better one.')
     ap.add_argument('--shaping', type=float, default=0.15)
     ap.add_argument('--shaping-anneal', type=float, default=0.6)
     ap.add_argument('--waste-penalty', type=float, default=0.15,
@@ -372,6 +394,11 @@ def main():
     ap.add_argument('--keep', type=int, default=5,
                     help='numbered snapshots to keep (0 = keep them all)')
     ap.add_argument('--resume', action='store_true')
+    ap.add_argument('--init', default=None,
+                    help='load starting weights from this file but write '
+                         'checkpoints to --ckpt. Keeps a behaviour-cloned '
+                         'network read-only so a training run cannot overwrite '
+                         'the thing it started from.')
     args = ap.parse_args()
 
     signal.signal(signal.SIGTERM, _on_term)
@@ -383,7 +410,15 @@ def main():
     opt = torch.optim.Adam(net.parameters(), lr=args.lr)
     path = os.path.join(args.ckpt, 'selfplay.pt')
     start = 1
-    if args.resume:
+    if args.init:
+        ck = torch.load(args.init, map_location=device)
+        if ck.get('arch') and ck['arch'] != arch:
+            raise SystemExit(f'init arch {ck["arch"]} != requested {arch}')
+        net.load_state_dict(ck['net'])
+        print(f'initialised from {args.init} '
+              f'(agreement {100*ck.get("val_match", 0):.1f}%), '
+              f'writing checkpoints to {args.ckpt}')
+    elif args.resume:
         ck, src = load_checkpoint(args.ckpt, device)
         if ck is None:
             print('no checkpoint found, starting from scratch')
@@ -392,9 +427,18 @@ def main():
                 raise SystemExit(f'checkpoint arch {ck["arch"]} != '
                                  f'requested {arch}')
             net.load_state_dict(ck['net'])
-            opt.load_state_dict(ck['opt'])
-            start = ck['iter'] + 1
-            print(f'resumed from {src} at iteration {ck["iter"]}')
+            if ck.get('pretrained'):
+                # Adam's moments came from SUPERVISED training on a different
+                # loss at a different learning rate. Inheriting them makes the
+                # first PPO steps wildly mis-scaled and destroys the clone.
+                print(f'resumed from {src} (behaviour-cloned, '
+                      f'agreement {100*ck.get("val_match", 0):.1f}%) '
+                      f'-- optimiser state deliberately NOT inherited')
+                start = 1
+            else:
+                opt.load_state_dict(ck['opt'])
+                start = ck['iter'] + 1
+                print(f'resumed from {src} at iteration {ck["iter"]}')
 
     run_id = args.run_id or ('sp-' + progress.new_run_id())
     teams = (engine.MY_TEAM, engine.FOE_TEAM)
@@ -434,6 +478,12 @@ def main():
         f'lr {args.lr}  entropy {args.entropy}->{args.entropy_final}  '
         f'shaping {args.shaping}  waste_penalty {args.waste_penalty}')
 
+    ref_net = None
+    if args.kl_ref:
+        ref_net = nets.ActorCritic(**arch).to(device).eval()
+        ref_net.load_state_dict(net.state_dict())     # frozen copy of the start
+        for p in ref_net.parameters():
+            p.requires_grad_(False)
     opp_net = nets.ActorCritic(**arch).to(device).eval()
     past_pool = []
     pick_rng = random.Random(7)
@@ -467,7 +517,8 @@ def main():
             learner_seat=seats)
         ret, adv = gae(buf, args.gamma, args.lam)
         stats = ppo_update(net, opt, buf, ret, adv, device, args.epochs,
-                           args.batch, args.clip, args.vf, ent)
+                           args.batch, args.clip, args.vf, ent,
+                           ref=ref_net, kl_coef=args.kl_ref)
         total += len(buf)
         recent = (recent + results)[-4000:]
         wr = 100 * float(np.mean(recent)) if recent else float('nan')
@@ -493,8 +544,12 @@ def main():
                               for k, v in net.state_dict().items()})
             past_pool[:] = past_pool[-args.pool:]
 
+        def _rate(tag):
+            n = wins_vs['heuristic_%s_n' % tag]
+            return (100 * wins_vs['heuristic_%s_w' % tag] / n) if n else None
         beat_h = (100 * wins_vs['heuristic_w'] / wins_vs['heuristic_n']
                   if wins_vs['heuristic_n'] else None)
+        beat_hA, beat_hB = _rate('A'), _rate('B')
         ev_a = ev_b = None
         if args.eval_every and (it % args.eval_every == 0 or it == 1):
             ev_a, ev_b = eval_vs_heuristics(net, device, args.eval_games,
@@ -510,14 +565,16 @@ def main():
             'shaping': shaping, 'entropy_coef': ent, 'waste_penalty': wp,
             'A_vs_heuristic': ev_a, 'B_vs_heuristic': ev_b,
             'train_vs_heuristic': beat_h,
+            'vsH_as_BS': beat_hA, 'vsH_as_PB': beat_hB,
             'games_vs_heuristic': wins_vs['heuristic_n'], **tel})
         progress.write(run_id, state)
         # one aligned row per iteration, header repeated so it stays readable
         if it == start or (it - start) % 20 == 0:
-            say('%6s %10s %7s %7s %7s %6s %6s %6s %6s %7s'
-                % ('iter', 'vs-heur', 'self', 'turns', 'match', 'evo',
-                   'entropy', 'waste', 'step/s'))
-        vsh = ('%.1f%%' % beat_h) if beat_h is not None else '-'
+            say('%6s %10s %10s %7s %7s %7s %6s %7s %7s'
+                % ('iter', 'vsH as-BS', 'vsH as-PB', 'self', 'turns',
+                   'match', 'evo', 'entropy', 'step/s'))
+        vsh_a = ('%.1f%%' % beat_hA) if beat_hA is not None else '-'
+        vsh_b = ('%.1f%%' % beat_hB) if beat_hB is not None else '-'
         turns_s = ('%.1f' % tel['turns_to_win']) if tel.get('turns_to_win') else '-'
         flags = []
         if tel.get('decisive', 100) < 99:
@@ -526,9 +583,9 @@ def main():
             flags.append('entropy low')
         if tel.get('match_rate', 0) < 20 and it > 20:
             flags.append('not matching')
-        say('%6d %10s %6.1f%% %7s %6.1f%% %6.2f %6.2f %6.3f %6.3f %7.0f%s'
-            % (it, vsh, wr, turns_s, tel.get('match_rate', 0),
-               tel.get('evolutions', 0), stats['entropy'], shaping, wp,
+        say('%6d %10s %10s %6.1f%% %7s %6.1f%% %6.2f %7.2f %7.0f%s'
+            % (it, vsh_a, vsh_b, wr, turns_s, tel.get('match_rate', 0),
+               tel.get('evolutions', 0), stats['entropy'],
                total / max(el, 1e-9),
                ('   <- ' + ', '.join(flags)) if flags else ''))
         if ev_a is not None:

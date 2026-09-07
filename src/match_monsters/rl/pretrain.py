@@ -195,13 +195,15 @@ def main():
             torch.save({'net': net.state_dict(), 'opt': opt.state_dict(),
                         'arch': arch, 'iter': 0, 'shared': True,
                         'pretrained': True, 'val_match': match},
-                       os.path.join(args.ckpt, 'selfplay.pt'))
+                       os.path.join(args.ckpt, 'cloned.pt'))
         say('%6d %11.4f %11.4f %10.1f%% %9.4f%s'
               % (ep, tot / seen, vl / vn, 100 * match, vv / vn, star))
 
     say(f'\nbest epoch {best_epoch}: agrees with the hand-tuned policy on '
           f'{100*best_match:.1f}% of moves')
-    say(f'wrote {os.path.join(args.ckpt, "selfplay.pt")}')
+    say(f'wrote {os.path.join(args.ckpt, "cloned.pt")}')
+    say('this file is only ever written by cloning. Train from it with:')
+    say(f'  mm-train --init {os.path.join(args.ckpt, "cloned.pt")} --ckpt {args.ckpt}/rl')
     say('"val match" is how often it picks the same move the hand-tuned')
     say('policy would. Now continue with:  mm-train --resume')
 

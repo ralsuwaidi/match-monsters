@@ -123,7 +123,23 @@ pretrain-again epochs="12" width="64" blocks="3" hidden="256":
     {{rl}} python -u -m match_monsters.rl.pretrain --data checkpoints/bc_data.npz \
         --epochs {{epochs}} --width {{width}} --blocks {{blocks}} --hidden {{hidden}}
 
-# STEP 2: ONE network playing both teams and improving against itself (detached).
+# STEP 2: improve on the clone with self-play. --init keeps the cloned network
+# read-only, so a training run can never overwrite what it started from.
+improve iters="1200":
+    @mkdir -p logs checkpoints/rl
+    nohup {{rl}} python -u -m match_monsters.rl.train \
+        --init checkpoints/cloned.pt --ckpt checkpoints/rl --iters {{iters}} \
+        --width 64 --blocks 3 --hidden 256 \
+        --kl-ref 0.5 --entropy 0.004 --entropy-final 0.002 --lr 1e-4 \
+        --shaping 0 --waste-penalty 0 --gamma 1.0 \
+        --vs-heuristic 0.4 --vs-past 0.2 --games 256 --steps 8192 \
+        --eval-every 20 --eval-games 200 > logs/rl.log 2>&1 &
+    @sleep 2 && echo "watch it with 'just improve-log'"
+
+improve-log:
+    @tail -f logs/rl.log
+
+# STEP 2b: ONE network playing both teams from scratch (the old path).
 # It sees each monster's stats, not its name, so the same weights adapt to
 # whichever side it is playing.
 train iters="1500":
