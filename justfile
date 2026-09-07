@@ -108,8 +108,20 @@ validate:
 # STEP 1: learn to imitate the hand-tuned policies before any RL. Starting
 # from random weights and trying to discover competent play by exploration is
 # what failed repeatedly; this skips it.
-pretrain games="8000":
-    {{rl}} mm-pretrain --games {{games}} --width 128 --blocks 6 --hidden 512
+pretrain games="40000":
+    @mkdir -p logs
+    nohup {{rl}} python -u -m match_monsters.rl.pretrain --games {{games}} \
+        --epochs 12 --width 64 --blocks 3 --hidden 256 > logs/pretrain.log 2>&1 &
+    @sleep 2 && echo "watch it with 'just pretrain-log'"
+
+# watch the cloning run
+pretrain-log:
+    @tail -f logs/pretrain.log
+
+# reuse the collected demonstrations, just retrain (skips the 100s of play)
+pretrain-again epochs="12" width="64" blocks="3" hidden="256":
+    {{rl}} python -u -m match_monsters.rl.pretrain --data checkpoints/bc_data.npz \
+        --epochs {{epochs}} --width {{width}} --blocks {{blocks}} --hidden {{hidden}}
 
 # STEP 2: ONE network playing both teams and improving against itself (detached).
 # It sees each monster's stats, not its name, so the same weights adapt to

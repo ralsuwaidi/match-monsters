@@ -1,6 +1,7 @@
 # generated at run time
 runs/
 games/
+logs/
 checkpoints/
 *.pt
 game_state.json

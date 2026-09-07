@@ -77,15 +77,22 @@ def collect_shard(args):
 
 
 def collect(n_games, procs, max_turns, seed=1):
+    say = globals().get('say', print)
     per = max(1, n_games // procs)
     jobs = [(per, seed + 991 * i, max_turns) for i in range(procs)]
     t0 = time.time()
     with Pool(procs) as pool:
         shards = list(pool.imap_unordered(collect_shard, jobs))
     out = [np.concatenate([s[k] for s in shards]) for k in range(5)]
-    print(f'  collected {len(out[3]):,} decisions from {per*procs:,} games '
+    say(f'  collected {len(out[3]):,} decisions from {per*procs:,} games '
           f'in {time.time()-t0:.0f}s')
     return out
+
+
+def say(msg=''):
+    """Print and flush. Redirected stdout is block-buffered, which makes a
+    long run look frozen for minutes at a time."""
+    print(msg, flush=True)
 
 
 def main():
@@ -114,12 +121,12 @@ def main():
     if args.data and os.path.exists(cache):
         z = np.load(cache)
         B, S, M, A, W = (z['B'], z['S'], z['M'], z['A'], z['W'])
-        print(f'  reusing {len(A):,} decisions from {cache}')
+        say(f'  reusing {len(A):,} decisions from {cache}')
     else:
-        print(f'playing {args.games:,} games between the hand-tuned policies')
+        say(f'playing {args.games:,} games between the hand-tuned policies')
         B, S, M, A, W = collect(args.games, args.procs, args.max_turns)
         np.savez_compressed(cache, B=B, S=S, M=M, A=A, W=W)
-        print(f'  saved to {cache}')
+        say(f'  saved to {cache}')
 
     device = nets.pick_device(args.device)
     arch = dict(width=args.width, blocks=args.blocks, hidden=args.hidden)
@@ -129,9 +136,9 @@ def main():
     cut = int(n * 0.97)
     idx_all = np.random.permutation(n)
     tr, va = idx_all[:cut], idx_all[cut:]
-    print(f'\ntraining on {len(tr):,} decisions, holding out {len(va):,}')
-    print(f'  {sum(p.numel() for p in net.parameters()):,} params on {device}\n')
-    print('%6s %11s %11s %11s %9s' % ('epoch', 'train loss', 'val loss',
+    say(f'\ntraining on {len(tr):,} decisions, holding out {len(va):,}')
+    say(f'  {sum(p.numel() for p in net.parameters()):,} params on {device}\n')
+    say('%6s %11s %11s %11s %9s' % ('epoch', 'train loss', 'val loss',
                                       'val match', 'val value'))
     best_match, best_epoch = -1.0, 0
 
@@ -146,8 +153,11 @@ def main():
     for ep in range(1, args.epochs + 1):
         net.train()
         np.random.shuffle(tr)
-        tot, seen = 0.0, 0
-        for k in range(0, len(tr), args.batch):
+        tot, seen, hits = 0.0, 0, 0
+        nb = (len(tr) + args.batch - 1) // args.batch
+        every = max(1, nb // 8)
+        t_ep = time.time()
+        for bi, k in enumerate(range(0, len(tr), args.batch), 1):
             ix = tr[k:k + args.batch]
             b, s, m, a, w = batch(ix)
             logits, value = net(b, s, m)
@@ -156,7 +166,14 @@ def main():
             loss.backward()
             torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
             opt.step()
-            tot += float(loss.detach()) * len(ix); seen += len(ix)
+            tot += float(loss.detach()) * len(ix)
+            seen += len(ix)
+            hits += int((logits.argmax(-1) == a).sum())
+            if bi % every == 0 or bi == nb:
+                say('  epoch %2d  [%5d/%d]  loss %.4f  train agreement %.1f%%'
+                    ' %6.0f samples/s'
+                    % (ep, bi, nb, tot / seen, 100 * hits / seen,
+                       seen / max(time.time() - t_ep, 1e-9)))
         net.eval()
         with torch.no_grad():
             vl, vc, vv, vn = 0.0, 0, 0.0, 0
@@ -179,14 +196,14 @@ def main():
                         'arch': arch, 'iter': 0, 'shared': True,
                         'pretrained': True, 'val_match': match},
                        os.path.join(args.ckpt, 'selfplay.pt'))
-        print('%6d %11.4f %11.4f %10.1f%% %9.4f%s'
+        say('%6d %11.4f %11.4f %10.1f%% %9.4f%s'
               % (ep, tot / seen, vl / vn, 100 * match, vv / vn, star))
 
-    print(f'\nbest epoch {best_epoch}: agrees with the hand-tuned policy on '
+    say(f'\nbest epoch {best_epoch}: agrees with the hand-tuned policy on '
           f'{100*best_match:.1f}% of moves')
-    print(f'wrote {os.path.join(args.ckpt, "selfplay.pt")}')
-    print('"val match" is how often it picks the same move the hand-tuned')
-    print('policy would. Now continue with:  mm-train --resume')
+    say(f'wrote {os.path.join(args.ckpt, "selfplay.pt")}')
+    say('"val match" is how often it picks the same move the hand-tuned')
+    say('policy would. Now continue with:  mm-train --resume')
 
 
 if __name__ == '__main__':
