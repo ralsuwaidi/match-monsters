@@ -37,6 +37,79 @@ class NetAgent:
         return torch.distributions.Categorical(logits=logits).sample().cpu().numpy()
 
 
+class SearchAgent:
+    """Use the network as an EVALUATOR rather than as a policy.
+
+    The hand-tuned opponent is a one-ply greedy scorer: it applies each legal
+    move and rates the result with a formula somebody wrote by hand. This does
+    exactly the same thing with a value function that was trained on real
+    outcomes instead. Same algorithm, better evaluation -- which is the shape of
+    result that has beaten hand-written evaluators in every game it has been
+    tried on.
+
+    The refill after a match is random, so each candidate is rolled out
+    `samples` times and averaged: one lookahead is one sample of many.
+    """
+
+    def __init__(self, net, device, samples=2, top_k=8, prior=0.35):
+        self.net, self.device = net, device
+        self.samples, self.top_k, self.prior = samples, top_k, prior
+        self.name = 'search'
+
+    @torch.no_grad()
+    def act_batch(self, duels):
+        return np.asarray([self._one(d) for d in duels])
+
+    @torch.no_grad()
+    def _one(self, d):
+        board, scal = d.observe()
+        mask = d.legal_mask()
+        logits, _v = self.net(
+            torch.as_tensor(board[None], device=self.device),
+            torch.as_tensor(scal[None], device=self.device),
+            torch.as_tensor(mask[None], device=self.device))
+        logp = torch.log_softmax(logits[0], -1).cpu().numpy()
+        legal = np.flatnonzero(mask)
+        if len(legal) == 1:
+            return int(legal[0])
+        # the policy proposes; only its best few are actually searched
+        cand = legal[np.argsort(-logp[legal])[:self.top_k]]
+
+        states, owners = [], []
+        for a in cand:
+            for _ in range(self.samples):
+                c = d.clone()
+                side = c.active
+                c.step(int(a))
+                states.append(c)
+                owners.append(side)
+        boards = np.asarray([s.observe()[0] for s in states])
+        scals = np.asarray([s.observe()[1] for s in states])
+        masks = np.asarray([s.legal_mask() for s in states])
+        _lg, vals = self.net(torch.as_tensor(boards, device=self.device),
+                             torch.as_tensor(scals, device=self.device),
+                             torch.as_tensor(masks, device=self.device))
+        vals = vals.cpu().numpy()
+        best, best_score = int(cand[0]), -1e9
+        for i, a in enumerate(cand):
+            chunk = slice(i * self.samples, (i + 1) * self.samples)
+            v = 0.0
+            for j, st in zip(range(*chunk.indices(len(states))), states[chunk]):
+                # the value head speaks for whoever is on move in that state,
+                # so flip it when control has passed to the opponent
+                sign = 1.0 if st.active == owners[j] else -1.0
+                if st.done:
+                    r = st.result if owners[j] == 0 else 1.0 - st.result
+                    v += 2 * r - 1
+                else:
+                    v += sign * float(vals[j])
+            v /= self.samples
+            score = v + self.prior * logp[a]
+            if score > best_score:
+                best, best_score = int(a), score
+        return best
+
+
 class HeuristicAgent:
     """The hand-tuned policy, driven one decision at a time so it can share the
     same game loop as the networks."""

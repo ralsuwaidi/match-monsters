@@ -105,7 +105,13 @@ validate:
 
 # ------------------------------------------ neural self-play ----
 
-# ONE network playing both teams and improving against itself (detached).
+# STEP 1: learn to imitate the hand-tuned policies before any RL. Starting
+# from random weights and trying to discover competent play by exploration is
+# what failed repeatedly; this skips it.
+pretrain games="8000":
+    {{rl}} mm-pretrain --games {{games}} --width 128 --blocks 6 --hidden 512
+
+# STEP 2: ONE network playing both teams and improving against itself (detached).
 # It sees each monster's stats, not its name, so the same weights adapt to
 # whichever side it is playing.
 train iters="1500":

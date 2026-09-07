@@ -7,6 +7,7 @@ set of legal actions. Everything else has to come from winning and losing.
 A `Duel` steps one decision at a time for whichever side is on move, so both
 agents generate trajectories from the same game.
 """
+import random
 from collections import Counter
 
 import numpy as np
@@ -71,6 +72,28 @@ class Duel:
         self.n_matched = 0
         self.n_big = 0                # matches of 4+, which refund the move
         self.last_matched = False     # did the most recent action clear tiles?
+
+    def clone(self):
+        """Independent copy, for search. The RNG is forked so each rollout
+        samples its own refill -- the board after a match is genuinely random,
+        so a single lookahead is one sample of many."""
+        import copy
+        d = object.__new__(Duel)
+        d.py_rng = random.Random(self.py_rng.randrange(1 << 30))
+        d.g = self.g.clone(rng=d.py_rng)
+        d.teams = self.teams
+        d.sides = [copy.deepcopy(s) for s in self.sides]
+        d.st = Counter()
+        d.active = self.active
+        d.moves = self.moves
+        d.extras = self.extras
+        d.turn = self.turn
+        d.max_turns = self.max_turns
+        d.done = self.done
+        d.result = self.result
+        d.n_swaps = d.n_matched = d.n_big = 0
+        d.last_matched = False
+        return d
 
     # ---------------------------------------------------------------- obs --
     def legal_mask(self, match_only=False):
