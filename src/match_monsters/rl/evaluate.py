@@ -273,6 +273,12 @@ def main():
     ap.add_argument('--ckpt', default='checkpoints/selfplay.pt')
     ap.add_argument('--games', type=int, default=400)
     ap.add_argument('--device', default='auto')
+    ap.add_argument('--search', type=int, default=0,
+                    help='also evaluate the network used as an EVALUATOR with '
+                         'N refill samples per candidate move, the same way the '
+                         'hand-tuned policy works but with a learned score')
+    ap.add_argument('--search-top', type=int, default=8,
+                    help='how many of the policy\'s best moves to search')
     ap.add_argument('--sample', action='store_true',
                     help='sample from the policy instead of taking the argmax')
     args = ap.parse_args()
@@ -344,7 +350,15 @@ def main():
         print('  every strike at honey 0 throws 4 mana away for no damage.')
     print('  network win rate in this matchup: %.1f%% over %d games\n' % (wr, ng))
 
-    rows = [
+    rows = []
+    if args.search:
+        srch = SearchAgent(A, device, samples=args.search, top_k=args.search_top)
+        rows += [
+            ('SEARCH (net as evaluator)  vs  heuristic pel_deny', srch, hB),
+            ('heuristic bon_hdeny        vs  SEARCH', hA,
+             SearchAgent(B, device, samples=args.search, top_k=args.search_top)),
+        ]
+    rows += [
         ('net A (Bonzumi+Sipzap)  vs  net B (Pelijet+Barbenin)', netA, netB),
         ('net A                   vs  heuristic pel_deny', netA, hB),
         ('heuristic bon_hdeny     vs  net B', hA, netB),

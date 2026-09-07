@@ -133,6 +133,7 @@ def main():
     print(f'  {sum(p.numel() for p in net.parameters()):,} params on {device}\n')
     print('%6s %11s %11s %11s %9s' % ('epoch', 'train loss', 'val loss',
                                       'val match', 'val value'))
+    best_match, best_epoch = -1.0, 0
 
     def batch(ix):
         b = torch.as_tensor(B[ix].astype(np.float32) / 255.0, device=device)
@@ -167,14 +168,23 @@ def main():
                 vc += int((logits.argmax(-1) == a).sum())
                 vv += float(F.mse_loss(value, w)) * len(ix)
                 vn += len(ix)
-        print('%6d %11.4f %11.4f %10.1f%% %9.4f'
-              % (ep, tot / seen, vl / vn, 100 * vc / vn, vv / vn))
-        torch.save({'net': net.state_dict(), 'opt': opt.state_dict(),
-                    'arch': arch, 'iter': 0, 'shared': True,
-                    'pretrained': True},
-                   os.path.join(args.ckpt, 'selfplay.pt'))
+        match = vc / vn
+        # keep the BEST epoch, not the last -- this overfits, and saving every
+        # epoch means the checkpoint you keep is the worst one
+        star = ''
+        if match > best_match:
+            best_match, best_epoch = match, ep
+            star = '  <- best, saved'
+            torch.save({'net': net.state_dict(), 'opt': opt.state_dict(),
+                        'arch': arch, 'iter': 0, 'shared': True,
+                        'pretrained': True, 'val_match': match},
+                       os.path.join(args.ckpt, 'selfplay.pt'))
+        print('%6d %11.4f %11.4f %10.1f%% %9.4f%s'
+              % (ep, tot / seen, vl / vn, 100 * match, vv / vn, star))
 
-    print(f'\nwrote {os.path.join(args.ckpt, "selfplay.pt")}')
+    print(f'\nbest epoch {best_epoch}: agrees with the hand-tuned policy on '
+          f'{100*best_match:.1f}% of moves')
+    print(f'wrote {os.path.join(args.ckpt, "selfplay.pt")}')
     print('"val match" is how often it picks the same move the hand-tuned')
     print('policy would. Now continue with:  mm-train --resume')
 

@@ -163,6 +163,10 @@ baseline:
 eval games="400":
     {{rl}} mm-eval --games {{games}}
 
+# the same network used as an EVALUATOR with lookahead, rather than as a policy
+eval-search games="200" samples="2":
+    {{rl}} mm-eval --games {{games}} --search {{samples}}
+
 # ------------------------------------------------------------ tidy ----
 
 # stop everything running in the background
