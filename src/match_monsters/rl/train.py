@@ -514,7 +514,7 @@ def main():
         progress.write(run_id, state)
         # one aligned row per iteration, header repeated so it stays readable
         if it == start or (it - start) % 20 == 0:
-            say('%6s %10s %7s %7s %7s %6s %6s %6s %7s'
+            say('%6s %10s %7s %7s %7s %6s %6s %6s %6s %7s'
                 % ('iter', 'vs-heur', 'self', 'turns', 'match', 'evo',
                    'entropy', 'waste', 'step/s'))
         vsh = ('%.1f%%' % beat_h) if beat_h is not None else '-'
@@ -526,9 +526,9 @@ def main():
             flags.append('entropy low')
         if tel.get('match_rate', 0) < 20 and it > 20:
             flags.append('not matching')
-        say('%6d %10s %6.1f%% %7s %6.1f%% %6.2f %6.2f %6.3f %7.0f%s'
+        say('%6d %10s %6.1f%% %7s %6.1f%% %6.2f %6.2f %6.3f %6.3f %7.0f%s'
             % (it, vsh, wr, turns_s, tel.get('match_rate', 0),
-               tel.get('evolutions', 0), stats['entropy'], wp,
+               tel.get('evolutions', 0), stats['entropy'], shaping, wp,
                total / max(el, 1e-9),
                ('   <- ' + ', '.join(flags)) if flags else ''))
         if ev_a is not None:
